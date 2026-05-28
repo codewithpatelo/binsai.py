@@ -1,176 +1,158 @@
-# MVP 1: Hungry Agents Office 🏢🧠⚡
+<p align="center">
+  <a href="#english">English</a> · <a href="#español">Español</a>
+</p>
 
-**Agentes en una oficina pixelart reciben demandas de un dummy human mientras su drive metabólico (S1 Bunge) regula cuándo, cómo y si actúan.**
+---
 
-## ¿Qué demuestra?
+<a id="english"></a>
 
-Este demo ilustra el **núcleo regulador endógeno** de Binsai con una visualización viral tipo OfficeClaw/MiroShark:
+## MVP1: Hungry Agents
 
-- **🏢 Entorno MAS**: Oficina con escritorios, plantas, iluminación
-- **🎨 Pixel art**: Agentes 8-bit animados, barras flotantes de drives, speech bubbles
-- **🧠 Drive metabólico único**: `δ_metabolic` (S1 Bunge) — tokens, energía, latencia
-- **👤 Dummy human**: Emite prompts aleatorios (quick / normal / heavy) con distinto costo metabólico
-- **😴 FIPA lifecycle**: Estados `initiated → active → suspended` con sleep/consolidación
-- **📊 Fuzzy sigmoid**: Todas las decisiones usan umbrales difusos (no if/else duros)
-- **📊 Visualización en tiempo real**: Los drives decaen y afectan el comportamiento visible
+A deterministic simulation of 3 agents (Alpha, Beta, Gamma) whose behavior is regulated by a single metabolic drive `δ_metabolic` (Bunge S1).
 
-## Arquitectura
+### What it demonstrates
+
+- **One active drive**: `metabolic` — regulates when the agent acts fast, slow, defers, or sleeps
+- **FIPA lifecycle**: `INITIATED → ACTIVE → SUSPENDED → ACTIVE` with causal transitions
+- **Sleep/consolidation**: Agent suspends when deficit exceeds threshold; wakes when recovered AND queue is empty
+- **Dummy human**: Random demands of varying metabolic cost
+- **Ablation comparison**: Gamma starts unregulated to show the difference
+
+### What it does NOT demonstrate
+
+- The other 9 canonical drives do not affect behavior
+- No pixel-art office or Phaser 3 visualization (MVP1 is headless/CLI)
+- No episodic/semantic memory (only bounded working memory)
+- No real LLM calls by default (`dry_run_llm=True`)
+
+### Run
+
+```bash
+# Deterministic headless simulation (default)
+binsai run mvp1 --seed 42 --speed 1.0 --no-browser
+
+# With real LLM (requires DEEPSEEK_API_KEY)
+export DEEPSEEK_API_KEY="your_key"
+binsai run mvp1 --seed 42 --no-llm  # remove --no-llm to enable LLM
+```
+
+Or programmatically:
+
+```python
+from binsai import World, WorldConfig
+
+config = WorldConfig(seed=42, dry_run_llm=True)
+world = World(config)
+
+for tick in range(100):
+    frame = world.step()
+    for a in frame.agents:
+        print(f"tick={tick}  {a.name}: δ={a.delta:.2f}, zone={a.zone}, action={a.action}")
+```
+
+### Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
-│         OfficeEnvironment (MAS)              │
+│              World (deterministic)           │
 │  ┌─────────┐    ┌─────────┐    ┌─────────┐  │
-│  │  Desk   │    │  Desk   │    │  Desk   │  │
-│  │ Ana (11)│    │Bruno (8)│    │Olivia(12)│  │
+│  │ Alpha   │    │ Beta    │    │ Gamma   │  │
 │  │ δM:0.3  │    │ δM:0.5  │    │ δM:0.4  │  │
 │  │ status:A│    │ status:A│    │ status:S│  │
 │  └─────────┘    └─────────┘    └─────────┘  │
 │         ↑                                    │
 │    [Dummy Human]                             │
-│    "Resumí la situación" (normal)             │
-│         ↓                                    │
-│    ¿act_fast? ¿act_slow? ¿defer? ¿sleep?     │
+│    random demands (quick/normal/heavy)       │
 └─────────────────────────────────────────────┘
-
-S = suspended (sleep/consolidación)
-A = active
 ```
 
-## Ciclo de vida (FIPA-like)
+### How the loop works
 
-```
-initiated ──activate()──→ active ──suspend()──→ suspended
-                                              │
-                                              │ consolidate()
-                                              │ (trim working memory)
-                                              │
-                                              └──resume()──→ active
-```
+1. **Passive decay**: Each tick, `δ_metabolic` drifts up (basal λ)
+2. **External demand**: Dummy human emits a random demand
+3. **Fuzzy appraisal**: The agent evaluates which action to take based on drive zone
+4. **Execution**: If acting → LLM call (or dry-run) → depletion proportional to tokens
+5. **Sleep**: If deficit is critical → `suspend()` → passive recovery + consolidation
+6. **Wake**: When recovered AND queue empty → `resume()` → `ACTIVE`
 
-En **suspended**: el agente no recibe prompts, no consume tokens, y recupera `δ_metabolic` pasivamente mientras consolida memoria.
+---
 
-## Dummy Human: perturbación externa
+<a id="español"></a>
 
-Un agente "dummy human" emite prompts cada heartbeat con probabilidad configurable:
+## MVP1: Agentes Hambrientos
 
-| Tipo | Prompt ejemplo | Costo metabólico |
-|------|---------------|------------------|
-| **quick** | "Dame un sí o no." | 0.02 |
-| **normal** | "Resumí la situación en una frase." | 0.05 |
-| **heavy** | "Desarrollá un argumento completo a favor o en contra." | 0.10 |
+Simulación determinista de 3 agentes (Alpha, Beta, Gamma) cuyo comportamiento se regula mediante un único drive metabólico `δ_metabolic` (Bunge S1).
 
-El dummy human **elige agente al azar** (no conoce drives internos).
+### Qué demuestra
 
-## Decisiones fuzzy del agente
+- **Un drive activo**: `metabolic` — regula cuándo el agente actúa rápido, lento, difiere o duerme
+- **Ciclo FIPA**: `INITIATED → ACTIVE → SUSPENDED → ACTIVE` con transiciones causales
+- **Sueño/consolidación**: El agente se suspende cuando el déficit excede el umbral; despierta cuando se recupera Y la cola está vacía
+- **Dummy human**: Demandas aleatorias de distinto costo metabólico
+- **Comparación por ablación**: Gamma arranca sin regulación para mostrar la diferencia
 
-Dado un prompt con costo `c`, el agente selecciona acción por sigmoides:
+### Qué NO demuestra
 
-- **`act_fast`**: Usa modelo rápido/cheap (responde con pocos tokens)
-- **`act_slow`**: Usa modelo lento/costoso (responde con más tokens)
-- **`defer`**: No responde ahora (preserva `δ_metabolic`)
-- **`sleep`**: Se suspende para consolidar memoria y recuperar recursos
+- Los otros 9 drives canónicos no afectan el comportamiento
+- No hay visualización pixel-art ni oficina con Phaser 3 (MVP1 es headless/CLI)
+- No hay memoria episódica/semántica (solo memoria de trabajo limitada)
+- No hay llamadas reales a LLM por defecto (`dry_run_llm=True`)
 
-La probabilidad de cada acción depende de `δ_metabolic` y del costo del prompt — no hay umbrales duros.
+### Ejecutar
 
-## Presión regulatoria (Driveplexity A2)
-
-Per el paper Driveplexity:
-
-```
-D(δ) = (δ · σ(k·δ))²
-```
-
-donde `δ = set_point - value`. Cuando `value < set_point` (déficit), la presión crece cuadráticamente. Cuando `value > set_point` (superávit), la presición cae a cero suavemente via sigmoide.
-
-## Ejecución
-
-### Browser (Phaser 3)
 ```bash
-$env:PYTHONPATH = "src"; python -m binsai.simulation.runner --mode web --port 8080
+# Simulación determinista headless (default)
+binsai run mvp1 --seed 42 --speed 1.0 --no-browser
+
+# Con LLM real (requiere DEEPSEEK_API_KEY)
+export DEEPSEEK_API_KEY="tu_key"
+binsai run mvp1 --seed 42  # sin --no-llm para habilitar LLM
 ```
-Abrir: `http://127.0.0.1:8080`
 
-### CLI (validación científica)
-```bash
-$env:PYTHONPATH = "src"; python -m binsai.simulation.runner --mode cli --steps 1200
-```
-
-## Controles (GUI)
-
-| Tecla | Acción |
-|-------|--------|
-| `ESPACIO` | Pausar/continuar |
-| `Q` | Salir |
-
-## Módulo de Simulación
+O programáticamente:
 
 ```python
-from binsai.simulation import SimulationEngine, ScenarioConfig, AgentSpec
+from binsai import World, WorldConfig
 
-cfg = ScenarioConfig(
-    mode="web",
-    topic="Can AI be functionally conscious?",
-    heartbeat_interval=40,
-    agent_specs=[
-        AgentSpec("Ana", "developer", 11),
-        AgentSpec("Bruno", "analyst", 8),
-        AgentSpec("Olivia", "researcher", 12),
-        AgentSpec("Nico", "designer", 14),
-    ],
-)
-engine = SimulationEngine(cfg)
-engine.run()
+config = WorldConfig(seed=42, dry_run_llm=True)
+world = World(config)
+
+for tick in range(100):
+    frame = world.step()
+    for a in frame.agents:
+        print(f"tick={tick}  {a.name}: δ={a.delta:.2f}, zona={a.zone}, acción={a.action}")
 ```
 
-## Comunicación con LLM (DeepSeek)
+### Arquitectura
 
-- El agente recibe prompt del dummy human
-- Decide acción fuzzy basada en `δ_metabolic`
-- Llama al LLM (fast o slow según decisión)
-- Evento `token_consumed` depleta `δ_metabolic`
-- Trazabilidad completa en panel: tokens, costo, presión, cambio de drive
-
-```bash
-$env:DEEPSEEK_API_KEY = "tu_key"
-$env:PYTHONPATH = "src"; python -m binsai.simulation.runner --mode web
+```
+┌─────────────────────────────────────────────┐
+│              World (determinista)            │
+│  ┌─────────┐    ┌─────────┐    ┌─────────┐  │
+│  │ Alpha   │    │ Beta    │    │ Gamma   │  │
+│  │ δM:0.3  │    │ δM:0.5  │    │ δM:0.4  │  │
+│  │ estado:A│    │ estado:A│    │ estado:S│  │
+│  └─────────┘    └─────────┘    └─────────┘  │
+│         ↑                                    │
+│    [Dummy Human]                             │
+│    demandas aleatorias (rápida/normal/pesada) │
+└─────────────────────────────────────────────┘
 ```
 
-## Cómo funciona el loop
+### Cómo funciona el loop
 
-1. **Decay pasivo**: Cada step, `δ_metabolic` decae (-0.02) — simula costo de estar "despierto"
-2. **Prompt externo**: Dummy human emite demanda cada heartbeat
-3. **Selección de target**: Uniformemente al azar entre agentes activos
-4. **Decisión fuzzy**: `σ(δ_metabolic)` determina probabilidad de cada acción
-5. **Ejecución**: Si actúa → LLM call → depleción proporcional a tokens
-6. **Sleep**: Si `δ_metabolic` es crítico → `suspend()` → no recibe prompts, no decae, recupera +0.10/heartbeat
-7. **Consolidación**: Durante sleep, trim de working memory (Miller 7→3 items) con costo -0.01
-8. **Resume**: `σ(δ_metabolic - set_point + 0.10)` determina probabilidad de despertar
+1. **Decaimiento pasivo**: Cada tick, `δ_metabolic` crece (λ basal)
+2. **Demanda externa**: Dummy human emite una demanda aleatoria
+3. **Appraisal difuso**: El agente evalúa qué acción tomar según la zona del drive
+4. **Ejecución**: Si actúa → llamada a LLM (o dry-run) → depleción proporcional a tokens
+5. **Sueño**: Si el déficit es crítico → `suspend()` → recuperación pasiva + consolidación
+6. **Despertar**: Cuando se recupera Y la cola está vacía → `resume()` → `ACTIVE`
 
-## Herencia de AopifyJS (2019)
+---
 
-Del [roadmap de AopifyJS](https://github.com/codewithpatelo/aopifyjs):
-> "Homeoestatic Motives system"
-> "Agent Entities"
-> "Emotional Valence system"
-
-Binsai MVP 1 implementa exactamente esto, 6 años después:
-- ✅ Sistema de motivos homeostáticos (Bunge S1: `δ_metabolic`)
-- ✅ Agent Entities con visualización pixelart
-- ✅ FIPA lifecycle (initiated/active/suspended)
-- ✅ Regulación fuzzy por sigmoides (no if/else duros)
-- ✅ **Nuevo**: Dummy human como fuente de perturbación externa
-- ✅ **Nuevo**: Sleep/consolidación con recuperación pasiva
-
-## Inspiraciones Visuales
-
-- **OfficeClaw / Athenas IT**: Oficinas pixel art con múltiples agentes
-- **MiroShark**: Visualizaciones de agentes virales
-- **NetLogo**: Simulación MAS clásica, modernizada con pixel art
-
-## Referencias
+## References / Referencias
 
 - Bunge, M. (1979). *Ontology II: A World of Systems*
-- Bunge, M. & Romero, G. (2014). *Entropy and the ontology of\natural processes*
-- Pro-Action Γ (in preparation): Multi-subsystem regulatory operator
+- Bunge, M. & Romero, G. (2014). *Entropy and the ontology of natural processes*
+- Pro-Action Γ (in preparation): Multi-subsystem regulatory operator for LLM agents
 - Driveplexity (JAIIO 2025, under review): Endogenous activation in multi-agent LLM debate
-- Miller, G.A. (1956). *The magical number seven, plus or minus two*

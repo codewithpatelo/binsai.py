@@ -4,13 +4,15 @@
 
 <h1 align="center">Binsai.PY</h1>
 
+![alt text](binsaiui.png)
+
 <p align="center">
   <a href="#english">English</a> · <a href="#español">Español</a>
 </p>
 
 <p align="center">
   <a href="https://pypi.org/project/binsai/"><img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python Version"></a>
-  <a href="https://github.com/codewithpatelo/binsai/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"></a>
+  <a href="https://github.com/codewithpatelo/binsai/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-green.svg" alt="License"></a>
 </p>
 
 ---
@@ -240,9 +242,9 @@ Binsai ships incrementally through six MVPs, each adding a Bunge ontological lev
 
 ## License
 
-MIT License — see [LICENSE](LICENSE)
+GNU General Public License v3.0 — see [LICENSE](LICENSE)
 
-Copyright (c) 2026 Patricio Gerpe
+Copyright (C) 2026 Patricio Gerpe
 
 ---
 
@@ -314,4 +316,4 @@ Binsai agrega una capa regulatoria interna: drives, necesidades, set-points, dé
 
 ### Licencia
 
-MIT — ver [LICENSE](LICENSE). Copyright (c) 2026 Patricio Gerpe.
+GPL-3.0 — ver [LICENSE](LICENSE). Copyright (C) 2026 Patricio Gerpe.
