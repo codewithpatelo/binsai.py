@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use Binsai in your research, please cite it as below."
+type: software
+title: "Binsai: Bio-Inspired Neuro-Symbolic AI"
+authors:
+  - family-names: Gerpe
+    given-names: Patricio
+    email: pj.patriciojulian@gmail.com
+repository-code: "https://github.com/codewithpatelo/binsai"
+license: MIT
+version: 0.0.1.dev0
+date-released: "2026-05-12"
+keywords:
+  - ai-agents
+  - neurosymbolic-ai
+  - homeostasis
+  - drives
+  - proactivity
+  - regulation
+  - bio-inspired
+preferred-citation:
+  type: software
+  title: "Binsai: Bio-Inspired Neuro-Symbolic AI"
+  authors:
+    - family-names: Gerpe
+      given-names: Patricio
+  year: 2026
+  url: "https://github.com/codewithpatelo/binsai"

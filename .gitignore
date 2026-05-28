@@ -129,3 +129,16 @@ poetry.lock
 # OS specific files
 .DS_Store
 Thumbs.db
+
+.env
+
+# Legacy project READMEs (historical, not part of binsai distribution)
+langpifyreadme.md
+aopifyjsreadme.md
+
+# Internal docs (not part of distribution)
+/docs/CONTEXT.md
+/docs/notas.md
+/docs/plan.md
+/docs/plan2.md
+/.claude/CLAUDE.md
