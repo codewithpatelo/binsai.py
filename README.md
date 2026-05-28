@@ -4,7 +4,11 @@
 
 <h1 align="center">Binsai.PY</h1>
 
-![alt text](binsaiui.png)
+<p align="center">
+  <img src="./binsaiui.png" alt="Binsai MVP1 demo — 3 agents regulated by metabolic drive" width="640" style="max-width: 90%; border-radius: 8px; margin: 1em 0;" />
+  <br>
+  <sub><i>MVP1: 3 agents (Alpha, Beta, Gamma) regulated by δ_metabolic. Green = active, Red = suspended.</i></sub>
+</p>
 
 <p align="center">
   <a href="#english">English</a> · <a href="#español">Español</a>
