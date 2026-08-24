@@ -2,21 +2,22 @@
 # # Binsai.PY — Quickstart
 # ## Bio-Inspired Neuro-Symbolic AI for self-regulating agents
 #
-# Three scenarios:
+# Four scenarios:
 # 1. **Hunger / Fridge** — pure Python, no LLM. Single drive + custom action.
 # 2. **Socialization ablation** — DeepSeek LLM. Plain vs homeostatic conversation.
 # 3. **Hormonal routing (HPA)** — DeepSeek LLM + 2 coupled drives. Model routing.
+# 4. **Antagonistic tensions** — multi-objective regulation without scalarizing.
 #
-# Scenario 1 runs **offline** (no API key). Scenarios 2 & 3 need `DEEPSEEK_API_KEY`.
+# Scenario 1 & 4 run **offline** (no API key). Scenarios 2 & 3 need `DEEPSEEK_API_KEY`.
 
 # %% [markdown]
 # ## Install
-# Uncomment the PyPI line once published; use git for now.
 
 # %%
-# !pip install binsai
-# %% (fallback — uncomment if binsai is not on PyPI yet)
-# !pip install git+https://github.com/codewithpatelo/binsai.py
+!pip install binsai
+
+# %% [markdown]
+# *(Fallback if PyPI is unavailable: `!pip install git+https://github.com/codewithpatelo/binsai.py`)*
 
 # %% [markdown]
 # ---
