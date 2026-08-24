@@ -143,3 +143,5 @@ aopifyjsreadme.md
 /docs/plan2.md
 /.claude/CLAUDE.md
 _attic/
+notebooks/*.csv
+notebooks/*.jsonl
