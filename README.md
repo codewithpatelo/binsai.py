@@ -101,6 +101,132 @@ This creates 3 agents (Alpha, Beta, Gamma) with heterogeneous λ rates. Gamma st
 
 Full demo: [`examples/mvp1_hungry/`](examples/mvp1_hungry/)
 
+## Usage — four examples, from zero to plots
+
+Each example is self-contained and runs in seconds. Copy-paste into a Python file or notebook.
+
+### 1. The hungry person — a single drive with a custom action
+
+A person gets hungry over time. When hunger rises, they go to the fridge and eat.
+No LLM, no complex setup — just a drive, an action, and a homeostatic loop.
+
+```python
+from binsai import BinsaiAgent, Drives, Drive, Stratum
+from binsai.action_registry import ActionSet, ActionSpec, _handler_satiate
+import random
+
+# A hunger drive: starts at 0.60 (hungry), set-point at 0.30 (satisfied)
+hunger = Drive(name="hunger", stratum=Stratum.BIOLOGICAL,
+               value=0.60, set_point=0.30,
+               kappa=0.02, lambda_rate=0.008)
+
+# Two actions: go to the fridge (satiates hunger) or idle
+actions = ActionSet([
+    ActionSpec(name="go_to_fridge", requires_demand=False,
+               beta=-8.0, bias=-1.0,   # strongly preferred when hunger is high
+               handler=_handler_satiate("hunger", amount=0.8)),
+    ActionSpec(name="idle", requires_demand=False,
+               beta=0.0, bias=-0.3,
+               handler=lambda a,d,t,dm,df: "idle"),
+])
+
+person = BinsaiAgent(name="Alice", drives=Drives([hunger]),
+                     action_set=actions, dry_run_llm=True,
+                     rng=random.Random(42))
+person.activate()
+
+for tick in range(40):
+    person.tick(tick)
+    h = person.drives.get("hunger")
+    action = person.last_action or "idle"
+    marker = " ← eats!" if action == "satiated" else ""
+    print(f"tick={tick:2d}  hunger={h.value:.2f}  zone={h.get_zone():10s}  {action}{marker}")
+```
+
+Output shows the classic homeostatic sawtooth: hunger drifts up → fridge → drops → drifts up → ...
+
+### 2. The busy office — three agents under task pressure
+
+Three accountants (Alpha, Beta, Gamma) receive tasks from a boss. Alpha and Beta
+regulate their metabolic budget — they sleep when overloaded and conserve tokens.
+Gamma has no regulation (ablation control). Over time, the regulated agents spend
+fewer tokens while maintaining quality.
+
+```python
+from binsai import World, WorldConfig
+
+# dry_run_llm=True means no API key needed — runs offline with synthetic LLM
+world = World(WorldConfig(seed=42, dry_run_llm=True))
+
+# Run 200 ticks, collect telemetry
+log = world.run(200)
+df = log.to_dataframe()
+
+# Compare regulated vs unregulated
+last = df.sort_values("tick").groupby("agent").last()
+print(last[["session_tokens", "session_cost_usd", "session_deferred"]])
+
+# Export for analysis
+log.save_jsonl("office_simulation.jsonl")
+```
+
+### 3. The indecisive operator — antagonistic tensions
+
+Two drives pull in opposite directions. **Processing tasks** clears the backlog
+but fills the context window (costs tokens). **Compressing context** frees the
+window but drops pending work. Neither extreme strategy works — only the
+homeostatic middle ground keeps both variables in viable ranges.
+
+```python
+from binsai import Drive, Stratum
+import random
+
+ctx = Drive(name="context_fill", stratum=Stratum.TECHNICAL,
+            value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.005)
+bl  = Drive(name="task_backlog", stratum=Stratum.TECHNICAL,
+            value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.004)
+
+ctx_traj, bl_traj = [], []
+for tick in range(300):
+    ctx.update(tick); bl.update(tick)
+    # Act on whichever drive is farther from set-point
+    if abs(ctx.value - 0.30) > abs(bl.value - 0.30) and ctx.value > 0.30:
+        ctx.satiate(0.5); bl.deplete(0.02)    # compress → frees ctx, drops backlog
+    elif bl.value > 0.30:
+        bl.satiate(0.4); ctx.deplete(0.05)    # process → clears backlog, fills ctx
+    ctx_traj.append(ctx.value); bl_traj.append(bl.value)
+
+import numpy as np
+corr = np.corrcoef(ctx_traj[50:], bl_traj[50:])[0, 1]
+print(f"Correlation: {corr:.3f}  — negative = genuine antagonistic tension")
+print(f"Context fill range:  {min(ctx_traj):.3f}–{max(ctx_traj):.3f}")
+print(f"Task backlog range:  {min(bl_traj):.3f}–{max(bl_traj):.3f}")
+# Both stay within ~0.25–0.35 — tightly around set-point, without scalarizing
+```
+
+### 4. The data scientist — run, export, plot
+
+```python
+from binsai import World, WorldConfig
+
+world = World(WorldConfig(seed=42, dry_run_llm=True))
+log = world.run(300)
+
+# Export
+log.save_jsonl("results.jsonl")
+log.save_csv("results.csv")
+df = log.to_dataframe()
+
+# Plot (requires matplotlib — pip install binsai[analysis])
+from binsai.report import plot_trajectories, plot_kpi_comparison
+plot_trajectories(log)
+plot_kpi_comparison(log)
+```
+
+All four examples are also available as a [Colab notebook](notebooks/binsai_quickstart.ipynb).
+
+---
+
 ### MVP1: What works now
 
 This release is **MVP1 — Hungry Agent**. It implements the metabolic drive layer (Bunge S1) with:
@@ -342,6 +468,134 @@ for _ in range(10):
 ```
 
 Esto crea 3 agentes (Alpha, Beta, Gamma) con λ heterogéneas. Gamma arranca sin regulación para comparación por ablación. Cada tick: llegan demandas, los agentes evalúan y actúan, los drives evolucionan.
+
+## Uso — cuatro ejemplos, de cero a gráficos
+
+Cada ejemplo es autocontenido y corre en segundos. Copiá y pegá en un archivo Python o notebook.
+
+### 1. La persona con hambre — un solo drive con una acción personalizada
+
+Una persona tiene hambre con el tiempo. Cuando el hambre sube, va a la heladera
+y come. Sin LLM, sin configuración compleja — solo un drive, una acción y un
+lazo homeostático.
+
+```python
+from binsai import BinsaiAgent, Drives, Drive, Stratum
+from binsai.action_registry import ActionSet, ActionSpec, _handler_satiate
+import random
+
+# Un drive de hambre: arranca en 0.60 (hambriento), set-point en 0.30 (saciado)
+hambre = Drive(name="hambre", stratum=Stratum.BIOLOGICAL,
+               value=0.60, set_point=0.30,
+               kappa=0.02, lambda_rate=0.008)
+
+# Dos acciones: ir a la heladera (sacia el hambre) o no hacer nada
+acciones = ActionSet([
+    ActionSpec(name="ir_a_la_heladera", requires_demand=False,
+               beta=-8.0, bias=-1.0,   # muy preferida cuando el hambre es alta
+               handler=_handler_satiate("hambre", amount=0.8)),
+    ActionSpec(name="no_hacer_nada", requires_demand=False,
+               beta=0.0, bias=-0.3,
+               handler=lambda a,d,t,dm,df: "idle"),
+])
+
+persona = BinsaiAgent(name="Alicia", drives=Drives([hambre]),
+                      action_set=acciones, dry_run_llm=True,
+                      rng=random.Random(42))
+persona.activate()
+
+for tick in range(40):
+    persona.tick(tick)
+    h = persona.drives.get("hambre")
+    accion = persona.last_action or "idle"
+    marca = " ← come!" if accion == "satiated" else ""
+    print(f"tick={tick:2d}  hambre={h.value:.2f}  zona={h.get_zone():10s}  {accion}{marca}")
+```
+
+La salida muestra el clásico diente de sierra homeostático: el hambre sube →
+heladera → baja → sube → ...
+
+### 2. La oficina ocupada — tres agentes bajo presión de tareas
+
+Tres contadores (Alpha, Beta, Gamma) reciben tareas de un jefe. Alpha y Beta
+regulan su presupuesto metabólico — duermen cuando están sobrecargados y conservan
+tokens. Gamma no tiene regulación (control por ablación). Con el tiempo, los
+agentes regulados gastan menos tokens manteniendo la calidad.
+
+```python
+from binsai import World, WorldConfig
+
+# dry_run_llm=True corre sin API key — LLM sintético offline
+mundo = World(WorldConfig(seed=42, dry_run_llm=True))
+
+# Ejecutar 200 ticks, recolectar telemetría
+log = mundo.run(200)
+df = log.to_dataframe()
+
+# Comparar regulado vs no regulado
+ultimo = df.sort_values("tick").groupby("agent").last()
+print(ultimo[["session_tokens", "session_cost_usd", "session_deferred"]])
+
+# Exportar para análisis
+log.save_jsonl("simulacion_oficina.jsonl")
+```
+
+### 3. El operador indeciso — tensiones antagónicas
+
+Dos drives tiran en direcciones opuestas. **Procesar tareas** vacía el backlog
+pero llena la ventana de contexto (cuesta tokens). **Comprimir contexto** libera
+la ventana pero descarta trabajo pendiente. Ninguna estrategia extrema funciona
+— solo el punto medio homeostático mantiene ambas variables en rango viable.
+
+```python
+from binsai import Drive, Stratum
+import random
+
+ctx = Drive(name="ventana_contexto", stratum=Stratum.TECHNICAL,
+            value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.005)
+bl  = Drive(name="tareas_pendientes", stratum=Stratum.TECHNICAL,
+            value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.004)
+
+ctx_traj, bl_traj = [], []
+for tick in range(300):
+    ctx.update(tick); bl.update(tick)
+    # Actuar sobre el drive más alejado de su set-point
+    if abs(ctx.value - 0.30) > abs(bl.value - 0.30) and ctx.value > 0.30:
+        ctx.satiate(0.5); bl.deplete(0.02)    # comprimir → libera ctx, pierde tareas
+    elif bl.value > 0.30:
+        bl.satiate(0.4); ctx.deplete(0.05)    # procesar → vacía backlog, llena ctx
+    ctx_traj.append(ctx.value); bl_traj.append(bl.value)
+
+import numpy as np
+corr = np.corrcoef(ctx_traj[50:], bl_traj[50:])[0, 1]
+print(f"Correlación: {corr:.3f}  — negativa = tensión antagónica genuina")
+print(f"Rango contexto:     {min(ctx_traj):.3f}–{max(ctx_traj):.3f}")
+print(f"Rango tareas pend.: {min(bl_traj):.3f}–{max(bl_traj):.3f}")
+# Ambos se mantienen en ~0.25–0.35 — apretados alrededor del set-point, sin escalarizar
+```
+
+### 4. El científico de datos — ejecutar, exportar, graficar
+
+```python
+from binsai import World, WorldConfig
+
+mundo = World(WorldConfig(seed=42, dry_run_llm=True))
+log = mundo.run(300)
+
+# Exportar
+log.save_jsonl("resultados.jsonl")
+log.save_csv("resultados.csv")
+df = log.to_dataframe()
+
+# Graficar (requiere matplotlib — pip install binsai[analysis])
+from binsai.report import plot_trajectories, plot_kpi_comparison
+plot_trajectories(log)
+plot_kpi_comparison(log)
+```
+
+Los cuatro ejemplos también están disponibles como [notebook de Colab](notebooks/binsai_quickstart.ipynb).
+
+---
 
 ### MVP1: Qué funciona ahora
 
