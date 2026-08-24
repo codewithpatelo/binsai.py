@@ -43,7 +43,7 @@ class WorldConfig:
     ablation_off:   bool                 = False   # global override (all agents)
     dry_run_llm:    bool                 = False   # real LLM calls by default
     speed:          float                = 2.0
-    routing_policy: str                  = "demo"  # "fair" (paper) or "demo" (visible escalation)
+    routing_policy: str                  = "fair"  # "fair" (paper) or "demo" (visible escalation)
     agents: list[AgentConfig] = field(default_factory=lambda: [
         AgentConfig(name="Alpha", lambda_override=0.008, initial_delta=0.35, temperature=0.8),
         AgentConfig(name="Beta",  lambda_override=0.006, initial_delta=0.30, temperature=1.0),
@@ -170,7 +170,6 @@ class World:
                 temperature=cfg.temperature,
                 rng=random.Random(self.config.seed + 100 + i),
                 backend=self._backend,
-                routing_policy=self.config.routing_policy,
             )
             agent.on_any(self._capture_event)
             agents.append(agent)

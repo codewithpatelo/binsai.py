@@ -230,12 +230,14 @@ def pick_model_for_state(
     if action_kind == "respond_slow":
         if deviation < -0.20 and appraised_difficulty > 0.75:
             return DEFAULT_ROUTING["strong"]
-        return DEFAULT_ROUTING["weak"]   # default to cheap tier — savings from defer/sleep, not model choice
+        if deviation < -0.10 and appraised_difficulty > 0.55:
+            return DEFAULT_ROUTING["main"]
+        return DEFAULT_ROUTING["weak"]   # nominal zone → match ablation cost
 
     if action_kind == "proact":
         if deviation < -0.20 and appraised_difficulty > 0.75:
             return DEFAULT_ROUTING["strong"]
-        return DEFAULT_ROUTING["weak"]   # cheap triage for proact too
+        return DEFAULT_ROUTING["main"]   # proact always uses CoT (creative)
 
     return DEFAULT_ROUTING["weak"]
 
