@@ -110,12 +110,12 @@ social_actions = ActionSet([
     ActionSpec(
         name="reply", requires_demand=True,
         delta_cost=0.002, ticks=1, max_tokens=256,
-        beta=-0.5, bias=+1.6, handler=_handler_llm,
+        beta=-0.5, bias=+1.6, handler=_handler_llm,  # default when demand present
     ),
     ActionSpec(
         name="initiate_contact", requires_demand=False,
         delta_cost=0.003, ticks=1, max_tokens=256,
-        beta=-10.0, bias=-2.5, handler=_handler_llm,
+        beta=+10.0, bias=-0.5, handler=_handler_llm,  # activates when relatedness is HIGH (deficit)
     ),
     ActionSpec(
         name="idle", requires_demand=False,

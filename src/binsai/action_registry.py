@@ -155,7 +155,7 @@ class ActionSet:
             ActionSpec(
                 name="proact", requires_demand=False,
                 delta_cost=0.003, ticks=2, max_tokens=1500,
-                beta=-12.0, bias=-1.5, handler=_handler_llm,
+                beta=-12.0, bias=-3.5, handler=_handler_llm,
             ),
             ActionSpec(
                 name="idle", requires_demand=False,

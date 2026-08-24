@@ -474,10 +474,10 @@ class InboxScene extends Phaser.Scene {
         fontFamily: 'monospace', fontSize: '7px', color: '#30363d',
       }).setOrigin(0, 0);
       var memberGfx = this.add.graphics();
-      var ZONE_ABBR = ['over', 'sat', 'nom', 'load', 'crit'];
-      var ZONE_ABBR_CLR = ['#58a6ff', '#7ee787', '#a8d8a8', '#ffa657', '#f85149'];
+      var ZONE_ABBR = ['crit_s', 'hi_s', 'mod_s', 'eq', 'mod_d', 'hi_d', 'crit_d'];
+      var ZONE_ABBR_CLR = ['#2ea043', '#3fb950', '#56d364', '#58a6ff', '#d29922', '#e36209', '#f85149'];
       var zoneInitLabels = ZONE_ABBR.map(function(label, zi) {
-        var zw = Math.floor((b.w - 20) / 5) - 1;
+        var zw = Math.floor((b.w - 20) / 7) - 1;
         var zx = b.x + 10 + zi * (zw + 1) + Math.floor(zw / 2);
         return this.add.text(zx, R_zoneBars + 7, label, {
           fontFamily: 'monospace', fontSize: '6px', color: ZONE_ABBR_CLR[zi],
@@ -1102,7 +1102,7 @@ class InboxScene extends Phaser.Scene {
     var zones = ['critical_superavit', 'high_superavit', 'moderate_superavit',
                   'equilibrium', 'moderate_deficit', 'high_deficit', 'critical_deficit'];
     var bx = panelX + 8, by = barY, bw = panelW - 16, bh = 5;
-    var zw = Math.floor(bw / zones.length) - 1;
+    var zw = Math.floor(bw / 7) - 1;
     zones.forEach(function(z, idx) {
       var m = members[z] || 0, zx = bx + idx * (zw + 1);
       gfx.fillStyle(0x21262d, 1); gfx.fillRect(zx, by, zw, bh);

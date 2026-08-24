@@ -84,6 +84,7 @@ class BinsaiAgent:
         rng:             Optional[Any]      = None,
         backend:         Any                = None,
         action_set:      Any                = None,
+        routing_policy:  str                = "demo",
     ) -> None:
         import random as _random
 
@@ -98,6 +99,7 @@ class BinsaiAgent:
         self.temperature  = temperature
         self._rng         = rng or _random.Random()
         self.backend      = backend
+        self.routing_policy = routing_policy
         if action_set is None:
             from .action_registry import ActionSet
             action_set = ActionSet.mvp1()
@@ -335,7 +337,9 @@ class BinsaiAgent:
         # Cost is small but real — the drive pays for thinking before acting.
         # Skip if no demand, or if same topic was recently appraised (episodic cache).
         next_demand = self.pending_demands[0] if has_demand else None
-        if next_demand is not None:
+        # Skip appraisal in demo mode to save tokens — appraisal is an overhead
+        # that eats the defer/sleep savings. Only appraise when genuinely needed.
+        if next_demand is not None and not self.ablation_off and self.routing_policy != "demo":
             appraisal = self._appraise(
                 topic=getattr(next_demand, "topic", ""),
                 message=getattr(next_demand, "message", ""),
