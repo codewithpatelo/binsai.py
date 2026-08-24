@@ -122,8 +122,8 @@ hunger = Drive(name="hunger", value=0.60, set_point=0.30,
 # Two actions: go to the fridge (satiates hunger) or idle
 actions = ActionSet([
     ActionSpec(name="go_to_fridge", requires_demand=False,
-               beta=-8.0, bias=-1.0,   # strongly preferred when hunger is high
-               handler=_handler_satiate("hunger", amount=0.8, action_name="go_to_fridge")),
+               beta=+8.0, bias=-1.5,   # activates when hungry (deficit), not when full
+               handler=_handler_satiate("hunger", amount=0.8, action_name="go_to_fridge", only_when_deficit=True)),
     ActionSpec(name="idle", requires_demand=False,
                beta=0.0, bias=-0.3,
                handler=lambda a,d,t,dm,df: "idle"),
@@ -488,8 +488,8 @@ hambre = Drive(name="hambre", value=0.60, set_point=0.30,
 # Dos acciones: ir a la heladera (sacia el hambre) o no hacer nada
 acciones = ActionSet([
     ActionSpec(name="ir_a_la_heladera", requires_demand=False,
-               beta=-8.0, bias=-1.0,   # muy preferida cuando el hambre es alta
-               handler=_handler_satiate("hambre", amount=0.8, action_name="ir_a_la_heladera")),
+               beta=+8.0, bias=-1.5,   # se activa con déficit, no con superávit
+               handler=_handler_satiate("hambre", amount=0.8, action_name="ir_a_la_heladera", only_when_deficit=True)),
     ActionSpec(name="no_hacer_nada", requires_demand=False,
                beta=0.0, bias=-0.3,
                handler=lambda a,d,t,dm,df: "idle"),
