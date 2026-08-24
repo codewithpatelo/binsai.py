@@ -155,9 +155,9 @@ class World:
                         for k, v in dc.items():
                             if k != "name" and hasattr(d, k):
                                 setattr(d, k, v)
-            metabolic = drives.get("metabolic")
-            if metabolic:
-                metabolic.value = cfg.initial_delta
+            primary = drives.get("metabolic") or next(iter(drives), None)
+            if primary:
+                primary.value = cfg.initial_delta
 
             # Per-agent ablation: agent's own flag OR global override
             agent_ablation = cfg.ablation_off or self.config.ablation_off
@@ -235,18 +235,18 @@ class World:
             cons_summary = a.last_consolidation_summary
             a.last_consolidation_summary = None
 
-            _met = a.drives.get("metabolic")
+            _primary = a.drives.get("metabolic") or next(iter(a.drives), None)
             agent_frames.append(AgentFrame(
                 aid=a.aid,
                 name=a.name,
                 status=a.status,
-                delta=round(_met.value, 4) if _met else None,
-                zone=_met.get_zone() if _met else None,
-                lambda_rate=_met.lambda_rate if _met else None,
+                delta=round(_primary.value, 4) if _primary else None,
+                zone=_primary.get_zone() if _primary else None,
+                lambda_rate=_primary.lambda_rate if _primary else None,
                 temperature=a.temperature,
                 memberships={
                     k: round(v, 4)
-                    for k, v in (a.drives.get("metabolic").zone_memberships() if a.drives.get("metabolic") else {}).items()
+                    for k, v in (_primary.zone_memberships() if _primary else {}).items()
                 },
                 queue=len(a.pending_demands),
                 buffered=len(a.mailbox.buffered),

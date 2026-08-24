@@ -3,7 +3,7 @@
 Give agents motivations, not just capabilities.
 """
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 __author__  = "Patricio Gerpe"
 __email__   = "pj.patriciojulian@gmail.com"
 

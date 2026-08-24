@@ -23,56 +23,46 @@
 # ---
 # ## Scenario 1: Hunger / Fridge (no LLM) — event-driven
 #
-# A person has a `hunger` drive. When hunger enters a deficit zone,
-# the agent fires an event. We register handlers that react to those
-# zone transitions — no `if` statements, no softmax tuning.
-#
-# The paradigm: `agent.on("drive.hunger.<zone>", handler)`
+# A person has a `hunger` drive. When hunger enters a deficit zone, the drive
+# emits an event. We wire handlers: `agent.on("drive.hunger.high_deficit", eat)`.
+# No `if` statements, no softmax — just events and reactions.
 
 # %%
 from binsai import BinsaiAgent, Drives, Drive
 
-# 1. Create a hunger drive — starts hungry (δ = 0.60)
-hunger = Drive(
-    name="hunger", value=0.60, set_point=0.30,
-    kappa=0.02, lambda_rate=0.008, satiation_rate=0.30,
-)
+hunger = Drive(name="hunger", value=0.60, set_point=0.30,
+               kappa=0.02, lambda_rate=0.008, satiation_rate=0.30)
 
 agent = BinsaiAgent(name="Sim", drives=Drives([hunger]), dry_run_llm=True)
 agent.activate()
 
-# 2. Register event handlers: when hunger enters a deficit zone, go eat
-log = []
+# Register handlers: when hunger enters a deficit zone, go eat
 def eat(event):
-    """Reaction to deficit: satiate the hunger drive."""
     h = agent.drives.get("hunger")
-    h.satiate(0.8)  # eating reduces hunger
-    log.append(f"tick={event['tick']:2d} zone={event['zone']:20s} hunger={h.value:.3f} → eats!")
+    h.satiate(0.8)
 
-# Wire events: any deficit zone triggers eating
 for zone in ["moderate_deficit", "high_deficit", "critical_deficit"]:
     agent.on(f"drive.hunger.{zone}", eat)
 
-# 3. Run 40 ticks — the drive updates autonomously, events fire on zone entry
-print("tick | hunger δ | zone                | event")
+# Run 40 ticks
+print("tick | hunger | zone                | what happened")
 print("-" * 58)
 for tick in range(40):
     h = agent.drives.get("hunger")
+    before = h.value
     zone_before = h.get_zone()
     agent.tick(tick)
+    after = h.value
     zone_after = h.get_zone()
-    # Print every tick; mark zone transitions
-    changed = "← entered!" if zone_before != zone_after else ""
-    print(f"  {tick:2d} |    {h.value:.3f} | {zone_after:20s} | {changed}")
 
-print()
-print("Event log (zone entries that triggered eating):")
-for entry in log:
-    print(f"  {entry}")
-print()
-print("Key point: no `if hunger > 0.30` anywhere. The drive emits events when")
-print("it crosses zone boundaries, and handlers react. Zones are user-configurable")
-print("via `Drive(zones=[ZoneSpec(...), ...])` — the event names follow automatically.")
+    if after < before - 0.01:
+        what = "ATE! (event handler fired)"
+    elif zone_before != zone_after:
+        what = f"drifted into {zone_after}"
+    else:
+        what = "idle (drive drifting)"
+
+    print(f"  {tick:2d} |  {after:.3f} | {zone_after:20s} | {what}")
 
 # %%
 # Quick plot of the hunger trajectory
@@ -186,7 +176,8 @@ print(f"Agent initiated contact at ticks: {proact_ticks}")
 # it defers or sleeps. Two drives are **coupled**: task_load feeds into metabolic.
 
 # %%
-from binsai import World, WorldConfig, AgentConfig, Drives, Drive, Stratum
+from binsai import World, WorldConfig, AgentConfig, Drives, Drive
+from binsai.action_registry import ActionSet, ActionSpec, _handler_llm, _handler_noop
 
 # 1. Create two coupled drives
 drives = Drives([

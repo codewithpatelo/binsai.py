@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "binsai"
-version = "0.1.3"
+version = "0.1.4"
 description = "Bio-Inspired Neuro-Symbolic AI — give agents motivations, not just capabilities"
 authors = ["Patricio Gerpe <pj.patriciojulian@gmail.com>"]
 license = "GPL-3.0-or-later"
