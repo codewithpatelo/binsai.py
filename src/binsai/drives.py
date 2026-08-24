@@ -106,7 +106,7 @@ class Drive:
                 ZoneSpec("high_deficit",         0.55, 0.10),
                 ZoneSpec("critical_deficit",     0.80, 0.12),
             ]
-        self._last_zone = self.get_zone()
+        self._last_zone = None  # Force first update() to emit zone.enter
 
     @staticmethod
     def _resolve_drift(name: str):
@@ -153,7 +153,10 @@ class Drive:
             self._history = self._history[-500:]
         new_zone = self.get_zone()
         self._last_zone = new_zone
-        if old_zone and old_zone != new_zone:
+        if old_zone is None:
+            # First update — emit initial zone entry
+            return [("zone.enter", new_zone)]
+        if old_zone != new_zone:
             return [("zone.exit", old_zone), ("zone.enter", new_zone)]
         return None
 

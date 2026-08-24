@@ -21,73 +21,60 @@
 
 # %% [markdown]
 # ---
-# ## Scenario 1: Hunger / Fridge (no LLM)
+# ## Scenario 1: Hunger / Fridge (no LLM) — event-driven
 #
-# A single agent with a `hunger` drive. When hunger rises above set-point (deficit),
-# it goes to the fridge and eats. When satiated, it idles. The Γ operator in its
-# simplest form — no LLM, just a drive, an action, and a homeostatic loop.
+# A person has a `hunger` drive. When hunger enters a deficit zone,
+# the agent fires an event. We register handlers that react to those
+# zone transitions — no `if` statements, no softmax tuning.
+#
+# The paradigm: `agent.on("drive.hunger.<zone>", handler)`
 
 # %%
 from binsai import BinsaiAgent, Drives, Drive, Stratum
-from binsai.action_registry import ActionSet, ActionSpec
-from binsai.action_registry import _handler_satiate
-import random
 
 # 1. Create a hunger drive — starts hungry (δ = 0.60)
-hunger_drive = Drive(
+hunger = Drive(
     name="hunger", stratum=Stratum.BIOLOGICAL,
     value=0.60, set_point=0.30,
     kappa=0.02, lambda_rate=0.008,
     satiation_rate=0.30,
 )
 
-drives = Drives([hunger_drive])
-
-# 2. Define custom actions: go_to_fridge satiates hunger, idle does nothing
-actions = ActionSet([
-    ActionSpec(
-        name="go_to_fridge", requires_demand=False,
-        delta_cost=0.0, ticks=1, max_tokens=0,
-        beta=-8.0, bias=-1.0,
-        beta=+8.0, bias=-1.5,
-        handler=_handler_satiate("hunger", amount=0.8, action_name="go_to_fridge", only_when_deficit=True),
-    ),
-    ActionSpec(
-        name="idle", requires_demand=False,
-        delta_cost=0.0, ticks=1, max_tokens=0,
-        beta=0.0, bias=-0.3,
-        handler=lambda a, d, t, dm, df: "idle",
-    ),
-])
-
-# 3. Create agent with hunger drive and custom actions
-agent = BinsaiAgent(
-    name="Sim",
-    drives=drives,
-    action_set=actions,
-    ablation_off=False,
-    dry_run_llm=True,
-    rng=random.Random(42),
-)
+agent = BinsaiAgent(name="Sim", drives=Drives([hunger]), dry_run_llm=True)
 agent.activate()
 
-# 4. Run 40 ticks and observe
-print("tick | hunger δ | zone       | action")
-print("-" * 48)
+# 2. Register event handlers: when hunger enters a deficit zone, go eat
+log = []
+def eat(event):
+    """Reaction to deficit: satiate the hunger drive."""
+    h = agent.drives.get("hunger")
+    h.satiate(0.8)  # eating reduces hunger
+    log.append(f"tick={event['tick']:2d} zone={event['zone']:20s} hunger={h.value:.3f} → eats!")
+
+# Wire events: any deficit zone triggers eating
+for zone in ["moderate_deficit", "high_deficit", "critical_deficit"]:
+    agent.on(f"drive.hunger.{zone}", eat)
+
+# 3. Run 40 ticks — the drive updates autonomously, events fire on zone entry
+print("tick | hunger δ | zone                | event")
+print("-" * 58)
 for tick in range(40):
+    h = agent.drives.get("hunger")
+    zone_before = h.get_zone()
     agent.tick(tick)
-    h = drives.get("hunger")
-    zone = h.get_zone() if h else "?"
-    delta = h.value if h else 0
-    action = agent.last_action or "idle"
-    marker = " ← eats!" if action == "go_to_fridge" else ""
-    print(f"  {tick:2d} |   {delta:.3f}  | {zone:10s} | {action:13s}{marker}")
+    zone_after = h.get_zone()
+    # Print every tick; mark zone transitions
+    changed = "← entered!" if zone_before != zone_after else ""
+    print(f"  {tick:2d} |    {h.value:.3f} | {zone_after:20s} | {changed}")
 
 print()
-print("What's happening: the person starts hungry (high_deficit, δ=0.60),")
-print("goes to the fridge, eats until near equilibrium, then idles while")
-print("hunger slowly drifts back up. This is the classic homeostatic sawtooth —")
-print("the same pattern that regulates body temperature, blood sugar, and sleep.")
+print("Event log (zone entries that triggered eating):")
+for entry in log:
+    print(f"  {entry}")
+print()
+print("Key point: no `if hunger > 0.30` anywhere. The drive emits events when")
+print("it crosses zone boundaries, and handlers react. Zones are user-configurable")
+print("via `Drive(zones=[ZoneSpec(...), ...])` — the event names follow automatically.")
 
 # %%
 # Quick plot of the hunger trajectory
