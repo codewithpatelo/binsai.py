@@ -32,17 +32,20 @@ from __future__ import annotations
 import math
 import random
 
-ZONES = ("oversated", "sated", "nominal", "loaded", "critical")
+ZONES = ("critical_superavit", "high_superavit", "moderate_superavit",
+         "equilibrium", "moderate_deficit", "high_deficit", "critical_deficit")
 
 ZONE_CENTERS: dict[str, float] = {
-    "oversated": 0.05,
-    "sated":     0.15,
-    "nominal":   0.30,
-    "loaded":    0.55,
-    "critical":  0.80,
+    "critical_superavit":   0.05,
+    "high_superavit":       0.13,
+    "moderate_superavit":   0.22,
+    "equilibrium":          0.30,
+    "moderate_deficit":     0.40,
+    "high_deficit":         0.55,
+    "critical_deficit":     0.80,
 }
 
-ZONE_WIDTH = 0.12  # Gaussian σ — controls overlap between adjacent zones
+ZONE_WIDTH = 0.08  # Gaussian σ — narrower for 7 zones
 
 ACTIONS_WITH_DEMAND = ["respond_fast", "respond_slow", "defer", "idle", "sleep"]
 ACTIONS_NO_DEMAND   = ["proact", "idle", "sleep"]

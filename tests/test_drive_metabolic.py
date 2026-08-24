@@ -67,27 +67,30 @@ class TestDriveSemantics:
 
 
 class TestZoneSystem:
-    def test_zone_at_critical_center(self):
+    def test_zone_at_critical_deficit(self):
         d = make_metabolic(0.80)
-        assert d.get_zone() == "critical"
+        assert d.get_zone() == "critical_deficit"
 
-    def test_zone_at_nominal_center(self):
+    def test_zone_at_equilibrium(self):
         d = make_metabolic(0.30)
-        assert d.get_zone() == "nominal"
+        assert d.get_zone() == "equilibrium"
 
-    def test_zone_at_oversated_center(self):
+    def test_zone_at_critical_superavit(self):
         d = make_metabolic(0.05)
-        assert d.get_zone() == "oversated"
+        assert d.get_zone() == "critical_superavit"
 
     def test_zone_memberships_sum_to_one(self):
-        for val in [0.05, 0.15, 0.30, 0.55, 0.80]:
+        for val in [0.05, 0.13, 0.22, 0.30, 0.40, 0.55, 0.80]:
             d = make_metabolic(val)
             total = sum(d.zone_memberships().values())
             assert abs(total - 1.0) < 1e-9
 
     def test_zone_memberships_keys(self):
         d = make_metabolic(0.30)
-        assert set(d.zone_memberships().keys()) == {"oversated", "sated", "nominal", "loaded", "critical"}
+        assert set(d.zone_memberships().keys()) == {
+            "critical_superavit", "high_superavit", "moderate_superavit",
+            "equilibrium", "moderate_deficit", "high_deficit", "critical_deficit",
+        }
 
 
 class TestDrivesCollection:

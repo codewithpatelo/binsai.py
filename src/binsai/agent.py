@@ -429,7 +429,10 @@ class BinsaiAgent:
         # If the action has a handler, run it for side effects (sleep, defer, idle, satiated)
         if action_spec.handler is not None:
             handler_result = action_spec.handler(self, drive, t, None, demand_difficulty)
-            if handler_result in ("sleep", "idle", "defer", "satiated"):
+            if handler_result in ("sleep", "idle", "defer"):
+                return handler_result
+            # Custom handler returned a descriptive action name — use it directly
+            if handler_result and handler_result != "llm":
                 return handler_result
 
         # ── Actions that need demand / LLM execution ──

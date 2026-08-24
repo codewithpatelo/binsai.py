@@ -94,14 +94,17 @@ class Drive:
             self._satiation_fn = self._resolve_satiation(self.satiation)
         else:
             self._satiation_fn = self.satiation
-        # Default zones if none provided
+        # Default zones if none provided — 7 interpretable bands
+        # Low δ = superavit (abundance), high δ = deficit (scarcity)
         if self.zones is None:
             self.zones = [
-                ZoneSpec("oversated", 0.05, 0.12),
-                ZoneSpec("sated",     0.15, 0.12),
-                ZoneSpec("nominal",   0.30, 0.12),
-                ZoneSpec("loaded",    0.55, 0.12),
-                ZoneSpec("critical",  0.80, 0.12),
+                ZoneSpec("critical_superavit",   0.05, 0.08),
+                ZoneSpec("high_superavit",       0.13, 0.08),
+                ZoneSpec("moderate_superavit",   0.22, 0.08),
+                ZoneSpec("equilibrium",          0.30, 0.08),
+                ZoneSpec("moderate_deficit",     0.40, 0.08),
+                ZoneSpec("high_deficit",         0.55, 0.10),
+                ZoneSpec("critical_deficit",     0.80, 0.12),
             ]
         self._last_zone = self.get_zone()
 

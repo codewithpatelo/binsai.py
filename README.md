@@ -124,7 +124,7 @@ hunger = Drive(name="hunger", stratum=Stratum.BIOLOGICAL,
 actions = ActionSet([
     ActionSpec(name="go_to_fridge", requires_demand=False,
                beta=-8.0, bias=-1.0,   # strongly preferred when hunger is high
-               handler=_handler_satiate("hunger", amount=0.8)),
+               handler=_handler_satiate("hunger", amount=0.8, action_name="go_to_fridge")),
     ActionSpec(name="idle", requires_demand=False,
                beta=0.0, bias=-0.3,
                handler=lambda a,d,t,dm,df: "idle"),
@@ -139,7 +139,7 @@ for tick in range(40):
     person.tick(tick)
     h = person.drives.get("hunger")
     action = person.last_action or "idle"
-    marker = " ← eats!" if action == "satiated" else ""
+    marker = " ← eats!" if action == "go_to_fridge" else ""
     print(f"tick={tick:2d}  hunger={h.value:.2f}  zone={h.get_zone():10s}  {action}{marker}")
 ```
 
@@ -493,7 +493,7 @@ hambre = Drive(name="hambre", stratum=Stratum.BIOLOGICAL,
 acciones = ActionSet([
     ActionSpec(name="ir_a_la_heladera", requires_demand=False,
                beta=-8.0, bias=-1.0,   # muy preferida cuando el hambre es alta
-               handler=_handler_satiate("hambre", amount=0.8)),
+               handler=_handler_satiate("hambre", amount=0.8, action_name="ir_a_la_heladera")),
     ActionSpec(name="no_hacer_nada", requires_demand=False,
                beta=0.0, bias=-0.3,
                handler=lambda a,d,t,dm,df: "idle"),
@@ -508,7 +508,7 @@ for tick in range(40):
     persona.tick(tick)
     h = persona.drives.get("hambre")
     accion = persona.last_action or "idle"
-    marca = " ← come!" if accion == "satiated" else ""
+    marca = " ← come!" if accion == "ir_a_la_heladera" else ""
     print(f"tick={tick:2d}  hambre={h.value:.2f}  zona={h.get_zone():10s}  {accion}{marca}")
 ```
 

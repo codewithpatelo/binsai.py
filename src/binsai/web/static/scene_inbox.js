@@ -32,18 +32,22 @@ const SPRITE_W    = 64 * LAYER_SCALE;
 const SPRITE_H    = 64 * LAYER_SCALE;
 
 const ZONE_COLOR_HEX = {
-  oversated: 0x58a6ff,
-  sated:     0x7ee787,
-  nominal:   0xa8d8a8,
-  loaded:    0xffa657,
-  critical:  0xf85149,
+  critical_superavit:   0x2ea043,
+  high_superavit:       0x3fb950,
+  moderate_superavit:   0x56d364,
+  equilibrium:          0x58a6ff,
+  moderate_deficit:     0xd29922,
+  high_deficit:         0xe36209,
+  critical_deficit:     0xf85149,
 };
 const ZONE_COLOR_CSS = {
-  oversated: '#58a6ff',
-  sated:     '#7ee787',
-  nominal:   '#a8d8a8',
-  loaded:    '#ffa657',
-  critical:  '#f85149',
+  critical_superavit:   '#2ea043',
+  high_superavit:       '#3fb950',
+  moderate_superavit:   '#56d364',
+  equilibrium:          '#58a6ff',
+  moderate_deficit:     '#d29922',
+  high_deficit:         '#e36209',
+  critical_deficit:     '#f85149',
 };
 
 // Per-agent hair tints (applied to the hair layer only)
@@ -62,7 +66,10 @@ const SPRITE_TOP        = 54;                           // px from panel top to 
 const STATS_BASE_OFFSET = SPRITE_TOP + (64 * 2) + 6;   // = 188 — first stats row below sprite
 
 function zoneToSemaphore(zone) {
-  return { oversated: 0x58a6ff, sated: 0x7ee787, nominal: 0xf0c040, loaded: 0xffa657, critical: 0xf85149 }[zone] || 0xf0c040;
+  return {
+    critical_superavit: 0x2ea043, high_superavit: 0x3fb950, moderate_superavit: 0x56d364,
+    equilibrium: 0x58a6ff, moderate_deficit: 0xd29922, high_deficit: 0xe36209, critical_deficit: 0xf85149,
+  }[zone] || 0x58a6ff;
 }
 
 // Hexagon drawn centered at gfx origin (0,0) so we can rotate/scaleX the whole gfx
@@ -294,11 +301,13 @@ class InboxScene extends Phaser.Scene {
     });
     lY += 11;
     var zoneRows = [
-      ['#58a6ff', 0x58a6ff, 'oversated'],
-      ['#7ee787', 0x7ee787, 'sated'],
-      ['#a8d8a8', 0xa8d8a8, 'nominal'],
-      ['#ffa657', 0xffa657, 'loaded'],
-      ['#f85149', 0xf85149, 'critical'],
+      ['#2ea043', 0x2ea043, 'critical_superavit'],
+      ['#3fb950', 0x3fb950, 'high_superavit'],
+      ['#56d364', 0x56d364, 'moderate_superavit'],
+      ['#58a6ff', 0x58a6ff, 'equilibrium'],
+      ['#d29922', 0xd29922, 'moderate_deficit'],
+      ['#e36209', 0xe36209, 'high_deficit'],
+      ['#f85149', 0xf85149, 'critical_deficit'],
     ];
     zoneRows.forEach(function(row) {
       legGfx.fillStyle(row[1], 1);
@@ -822,9 +831,9 @@ class InboxScene extends Phaser.Scene {
       }
       var bodyTint = 0xffffff;
       if (!isAblated) {
-        if (zone === 'critical')     bodyTint = 0xffbbbb;
-        else if (zone === 'loaded')  bodyTint = 0xffddcc;
-        else if (zone === 'oversated') bodyTint = 0xbbddff;
+        if (zone === 'critical_deficit')    bodyTint = 0xffbbbb;
+        else if (zone === 'high_deficit')   bodyTint = 0xffddcc;
+        else if (zone === 'critical_superavit') bodyTint = 0xbbddff;
       }
       var activeLayers = useCast ? obj.castLayers : obj.walkLayers;
       activeLayers.forEach(function(s, idx) { s.setTint(idx === activeLayers.length - 1 ? obj.hairTint : bodyTint); });
@@ -1090,7 +1099,8 @@ class InboxScene extends Phaser.Scene {
 
   _drawMemberships(gfx, panelX, barY, panelW, members) {
     gfx.clear();
-    var zones = ['oversated', 'sated', 'nominal', 'loaded', 'critical'];
+    var zones = ['critical_superavit', 'high_superavit', 'moderate_superavit',
+                  'equilibrium', 'moderate_deficit', 'high_deficit', 'critical_deficit'];
     var bx = panelX + 8, by = barY, bw = panelW - 16, bh = 5;
     var zw = Math.floor(bw / zones.length) - 1;
     zones.forEach(function(z, idx) {
@@ -1143,11 +1153,13 @@ class InboxScene extends Phaser.Scene {
 
       // ── Zone bands (shaded behind trajectory) ──
       var zoneDefs = [
-        { name: 'oversated', y0: 0.00, y1: 0.12, color: 0x2ea043, alpha: 0.12 },
-        { name: 'sated',     y0: 0.12, y1: 0.22, color: 0x58a6ff, alpha: 0.10 },
-        { name: 'nominal',   y0: 0.22, y1: 0.40, color: 0x3fb950, alpha: 0.08 },
-        { name: 'loaded',    y0: 0.40, y1: 0.65, color: 0xd29922, alpha: 0.10 },
-        { name: 'critical',  y0: 0.65, y1: 1.00, color: 0xf85149, alpha: 0.12 },
+        { name: 'critical_superavit',   y0: 0.00, y1: 0.09, color: 0x2ea043, alpha: 0.12 },
+        { name: 'high_superavit',       y0: 0.09, y1: 0.17, color: 0x3fb950, alpha: 0.10 },
+        { name: 'moderate_superavit',   y0: 0.17, y1: 0.26, color: 0x56d364, alpha: 0.08 },
+        { name: 'equilibrium',          y0: 0.26, y1: 0.35, color: 0x58a6ff, alpha: 0.08 },
+        { name: 'moderate_deficit',     y0: 0.35, y1: 0.48, color: 0xd29922, alpha: 0.10 },
+        { name: 'high_deficit',         y0: 0.48, y1: 0.68, color: 0xe36209, alpha: 0.12 },
+        { name: 'critical_deficit',     y0: 0.68, y1: 1.00, color: 0xf85149, alpha: 0.14 },
       ];
       zoneDefs.forEach(function(zd) {
         var zy = sy + sh * zd.y0;

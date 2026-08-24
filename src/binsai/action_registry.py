@@ -83,13 +83,17 @@ def _handler_llm(agent: Any, drive: Any, tick: int, demand: Any, difficulty: flo
     # This handler just returns the action name; the caller handles the rest.
     return "llm"  # caller maps this to the actual action kind
 
-def _handler_satiate(drive_name: str, amount: float = 0.5) -> Callable:
-    """Factory: create a satiation handler for a specific drive."""
+def _handler_satiate(drive_name: str, amount: float = 0.5, action_name: str = "eat") -> Callable:
+    """Factory: create a satiation handler for a specific drive.
+    
+    Returns the provided action_name so the output shows a meaningful label
+    (e.g. 'eat', 'go_to_fridge') instead of the internal 'satiated'.
+    """
     def handler(agent: Any, drive: Any, tick: int, demand: Any, difficulty: float) -> str:
         target = agent.drives.get(drive_name)
         if target:
             target.satiate(amount)
-        return "satiated"
+        return action_name
     return handler
 
 

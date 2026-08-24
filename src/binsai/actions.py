@@ -253,11 +253,13 @@ def token_cost_to_delta(tokens: int, rate: float = 3e-5) -> float:
 
 # Behavioral labels per zone — embedded in system prompt as self-description
 _ZONE_LABEL: dict[str, str] = {
-    "oversated": "abundant resources, well below set-point — you can afford thorough, creative responses",
-    "sated":     "comfortable resources, below set-point — prefer quality over brevity",
-    "nominal":   "resources at equilibrium — balanced response is appropriate",
-    "loaded":    "resources strained, above set-point — prefer concise, efficient responses",
-    "critical":  "severe resource deficit — be maximally brief; defer or sleep if possible",
+    "critical_superavit":   "extreme resource abundance — you can afford thorough, creative, expansive responses",
+    "high_superavit":       "significant resource surplus — prefer quality and depth over brevity",
+    "moderate_superavit":   "comfortable resource margin — you have room for detailed responses",
+    "equilibrium":          "resources at set-point — balanced, efficient response is appropriate",
+    "moderate_deficit":     "resources below set-point — prefer concise responses, consider deferring",
+    "high_deficit":         "significant resource shortage — be brief and direct; defer if possible",
+    "critical_deficit":     "severe resource depletion — be maximally terse; sleep or defer immediately",
 }
 
 # Scrambled labels for ablation_labels experiment (analogous to ecuacion_proaccion scramble)

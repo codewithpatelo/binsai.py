@@ -67,7 +67,8 @@ def test_working_memory():
 def test_drive_zones():
     drive = Drive(name="test", stratum=Stratum.BIOLOGICAL, value=0.30)
     zone = drive.get_zone()
-    assert zone in ("oversated", "sated", "nominal", "loaded", "critical")
+    assert zone in ("critical_superavit", "high_superavit", "moderate_superavit",
+                     "equilibrium", "moderate_deficit", "high_deficit", "critical_deficit")
 
 
 def test_drive_to_dict():

@@ -48,7 +48,7 @@ actions = ActionSet([
         name="go_to_fridge", requires_demand=False,
         delta_cost=0.0, ticks=1, max_tokens=0,
         beta=-8.0, bias=-1.0,
-        handler=_handler_satiate("hunger", amount=0.8),
+        handler=_handler_satiate("hunger", amount=0.8, action_name="go_to_fridge"),
     ),
     ActionSpec(
         name="idle", requires_demand=False,
@@ -78,7 +78,7 @@ for tick in range(40):
     zone = h.get_zone() if h else "?"
     delta = h.value if h else 0
     action = agent.last_action or "idle"
-    marker = " ← eats!" if action == "satiated" else ""
+    marker = " ← eats!" if action == "go_to_fridge" else ""
     print(f"  {tick:2d} |   {delta:.3f}  | {zone:10s} | {action:13s}{marker}")
 
 # %%
@@ -253,19 +253,29 @@ w.agents[0].action_set = routing_actions
 
 log = w.run(80)
 df = log.to_dataframe()
-
-# Show both drive trajectories
 router = df[df["agent"] == "Router"]
-plt.figure(figsize=(8, 3))
-plt.plot(router["tick"], router["delta"], label="metabolic (from frame)", alpha=0.7)
-plt.axhline(0.30, color='gray', linestyle='--')
-plt.xlabel('tick'); plt.ylabel('δ')
-plt.title('HPA routing — metabolic + task_load coupled')
-plt.legend(); plt.grid(True, alpha=0.3)
-plt.tight_layout(); plt.show()
 
-# Action breakdown
-print(router["action"].value_counts())
+# Show routing decisions at key moments — what model was chosen and why
+print("tick | metabolic δ | metabolic zone       | task_load δ | task_load zone       | action")
+print("-" * 95)
+for tick in range(0, 80, 8):
+    row = router[router["tick"] == tick]
+    if len(row) == 0: continue
+    r = row.iloc[0]
+    m = w.agents[0].drives.get("metabolic")
+    tl = w.agents[0].drives.get("task_load")
+    # Re-run to get drive values at this tick (they're consumed by the log but we can re-read)
+    m_val = m.value if m else 0.30
+    tl_val = tl.value if tl else 0.30
+    print(f"  {tick:3d} |     {m_val:.3f}   | {m.get_zone():20s} |      {tl_val:.3f}  | {tl.get_zone():20s} | {r['action']}")
+
+print()
+print("Action distribution:", dict(router["action"].value_counts()))
+print()
+print("How it works: when metabolic is in equilibrium or superavit (abundant resources),")
+print("the agent can afford respond_expensive (DeepSeek Pro). When metabolic is in deficit,")
+print("it switches to respond_cheap (DeepSeek Flash) or defers. The task_load drive is")
+print("coupled to metabolic — a busy agent burns more resources, creating natural feedback.")
 
 # %% [markdown]
 # ---
@@ -345,11 +355,17 @@ counts = Counter(actions)
 print(f"Correlation (ctx vs backlog): {corr:.3f} — negative = genuine tension")
 print(f"Action distribution: {dict(counts)}")
 print()
+print("Sample of decision-making (every 50 ticks):")
+print("tick | context_fill δ | context zone         | task_backlog δ | backlog zone         | action")
+print("-" * 95)
+for tick in range(0, 300, 50):
+    print(f"  {tick:3d} |        {ctx_traj[tick]:.3f}  | {ctx.get_zone():20s} |         {bl_traj[tick]:.3f}  | {bl.get_zone():20s} | {actions[tick]}")
+print()
 print("Key insight: no single scalar 'utility' can capture both drives — any")
-print("weighted sum picks an arbitrary exchange rate. Homeostasis maintains")
-print("both in viable range without ever scalarizing. This is what the Γ")
-print("operator is designed for: multi-objective regulation where the goal")
-print("is maintenance itself, not optimization of a scalar reward.")
+print("weighted sum picks an arbitrary exchange rate ('how many context tokens")
+print("is one pending task worth?'). Homeostasis maintains both in viable range")
+print("without ever scalarizing. The Γ operator is designed for multi-objective")
+print("regulation where the goal is maintenance itself, not optimization.")
 
 # %% [markdown]
 # ## Export
