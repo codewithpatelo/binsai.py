@@ -46,12 +46,12 @@ Binsai is the 4th iteration of a research program that asks: *what makes agents 
 | 2019 | [AopifyJS](https://github.com/codewithpatelo/aopifyjs) | Springer CCIS | FIPA-based declarative agents; roadmap already included "homeostatic motives" |
 | 2026 | Pro-Action Γ (n=6) | ICML 2026 LatinX in AI Workshop | Full multi-subsystem operator; feasibility proven with 6 drives in iterated prisoner's dilemma, but 6 drives = over-engineering |
 | 2026 | Pro-Action Γ Reduced (n=1) | NLP-School South America (poster) | Single-drive regulation in adversarial debate; emergent behavior, but regulation uncorrelated with collapse reduction → discovered the *satiety-signal problem* |
-| 2026 | Pro-Action Γ (n=2) | NeurIPS Workshop | Two drives with fuzzy criticality zones; identified the **redundancy argument**: if a scalar estimator exists, estimate-then-optimize beats regulation. Γ only makes sense where scalarization is impossible. |
+| 2026 | Pro-Action Γ (n=2) | LatinX in AI Workshop @ NeurIPS 2026 (pending review) | Two drives with fuzzy criticality zones; identified the **redundancy argument**: if a scalar estimator exists, estimate-then-optimize beats regulation. Γ only makes sense where scalarization is impossible. |
 | 2026 | **Binsai.PY** | RSLA 2026 | Parameterizable simulation substrate; metabolic drive demo; **antagonistic tensions** scenario |
 
 ### The framing shift: homeostasis is NOT competing with optimization
 
-The latest paper (LxAI 2026) found something uncomfortable but important: **when a scalar estimator of the state exists, estimating and optimizing dominates regulation.** This is not a defect of Γ — it's a structural fact. Regulation only makes sense where you *cannot* scalarize without choosing an arbitrary exchange rate between incommensurable objectives.
+The latest paper (Pro-Action Γ n=2, LatinX in AI Workshop @ NeurIPS 2026, pending review) found something uncomfortable but important: **when a scalar estimator of the state exists, estimating and optimizing dominates regulation.** This is not a defect of Γ — it's a structural fact. Regulation only makes sense where you *cannot* scalarize without choosing an arbitrary exchange rate between incommensurable objectives.
 
 This is where **agent operations** comes in: context budget, token cost, tool rate limits, latency, error rate, safety margin. These are **genuinely antagonistic** — you can't reduce "how many tokens is one less error worth?" to a single number without making an arbitrary choice. The goal is not to maximize a scalar reward but to **maintain multiple variables within viable ranges indefinitely.**
 
@@ -175,7 +175,7 @@ Each MVP ships with a visual demo using Phaser 3:
 
 - **Pro-Action Γ (n=6)** — ICML 2026 LatinX in AI Workshop: Full multi-subsystem regulatory operator; feasibility in iterated prisoner's dilemma
 - **Pro-Action Γ Reduced (n=1)** — NLP-School South America 2026 (poster): Single-drive regulation; discovered the satiety-signal problem
-- **Pro-Action Γ (n=2)** — NeurIPS 2026 Workshop (under review): Two drives + fuzzy criticality zones; identified the redundancy argument
+- **Pro-Action Γ (n=2)** — LatinX in AI Workshop @ NeurIPS 2026 (pending review): Two drives + fuzzy criticality zones; identified the redundancy argument
 - **AopifyJS** — Springer CCIS, 2019: FIPA-based declarative agent programming — the architectural precursor
 
 ---
@@ -224,7 +224,7 @@ This project evolves from:
 - [AopifyJS](https://github.com/codewithpatelo/aopifyjs) (2019, FIPA/declarative agents in Node.js) — Springer CCIS
 - **Pro-Action Γ (n=6)** — ICML 2026 LatinX in AI Workshop — full operator, feasibility
 - **Pro-Action Γ Reduced (n=1)** — NLP-School 2026 poster — satiety-signal problem
-- **Pro-Action Γ (n=2)** — NeurIPS 2026 Workshop — fuzzy zones + redundancy argument
+- **Pro-Action Γ (n=2)** — LatinX in AI Workshop @ NeurIPS 2026 (pending review) — fuzzy zones + redundancy argument
 - **Binsai.PY** — RSLA 2026 — parameterizable simulation substrate
 
 ---
@@ -288,12 +288,12 @@ Binsai es la 4ta iteración de un programa de investigación que pregunta: *¿qu
 | 2019 | [AopifyJS](https://github.com/codewithpatelo/aopifyjs) | Springer CCIS | Agentes declarativos FIPA; el roadmap ya incluía "motivos homeostáticos" |
 | 2026 | Pro-Action Γ (n=6) | ICML 2026 LatinX in AI Workshop | Operador multi-subsistema completo; factibilidad con 6 drives en dilema del prisionero iterado, pero 6 drives = sobreingeniería |
 | 2026 | Pro-Action Γ Reducido (n=1) | NLP-School Sudamérica (poster) | Regulación mono-drive en debate adversarial; comportamiento emergente, pero la regulación no correlacionó con la reducción de colapso → descubrimos el *problema de señal de saciedad* |
-| 2026 | Pro-Action Γ (n=2) | NeurIPS Workshop | Dos drives con zonas fuzzy de criticidad; identificamos el **argumento de redundancia**: si existe un estimador escalar del estado, estimar-y-optimizar domina a la regulación. Γ solo tiene sentido donde la escalarización es imposible. |
+| 2026 | Pro-Action Γ (n=2) | LatinX in AI Workshop @ NeurIPS 2026 (pendiente de revisión) | Dos drives con zonas fuzzy de criticidad; identificamos el **argumento de redundancia**: si existe un estimador escalar del estado, estimar-y-optimizar domina a la regulación. Γ solo tiene sentido donde la escalarización es imposible. |
 | 2026 | **Binsai.PY** | RSLA 2026 | Sustrato de simulación parametrizable; demo de drive metabólico; escenario de **tensiones antagónicas** |
 
 ### El cambio de framing: la homeostasis NO compite con la optimización
 
-El último paper (Pro-Action Γ n=2, NeurIPS 2026) encontró algo incómodo pero importante: **cuando existe un estimador escalar del estado, estimar y optimizar domina a la regulación.** Esto no es un defecto de Γ — es un hecho estructural. La regulación solo tiene sentido donde *no se puede* escalarizar sin elegir un tipo de cambio arbitrario entre objetivos inconmensurables.
+El último paper (Pro-Action Γ n=2, LatinX in AI Workshop @ NeurIPS 2026, pendiente de revisión) encontró algo incómodo pero importante: **cuando existe un estimador escalar del estado, estimar y optimizar domina a la regulación.** Esto no es un defecto de Γ — es un hecho estructural. La regulación solo tiene sentido donde *no se puede* escalarizar sin elegir un tipo de cambio arbitrario entre objetivos inconmensurables.
 
 Ahí entra la **operación de agentes**: presupuesto de contexto, costo por token, rate limits de herramientas, latencia, tasa de error, margen de seguridad. Son **genuinamente antagónicos** — no se puede reducir "¿cuántos tokens vale evitar un error?" a un solo número sin elegir arbitrariamente. El objetivo no es maximizar una recompensa escalar sino **mantener múltiples variables dentro de rangos viables indefinidamente.**
 
@@ -411,7 +411,7 @@ Cada MVP incluye una demo visual con Phaser 3:
 
 - **Pro-Action Γ (n=6)** — ICML 2026 LatinX in AI Workshop: Operador regulatorio multi-subsistema completo; factibilidad en dilema del prisionero iterado
 - **Pro-Action Γ Reducido (n=1)** — NLP-School Sudamérica 2026 (poster): Regulación mono-drive; descubrimiento del problema de señal de saciedad
-- **Pro-Action Γ (n=2)** — NeurIPS 2026 Workshop (under review): Dos drives + zonas fuzzy de criticidad; identificado el argumento de redundancia
+- **Pro-Action Γ (n=2)** — LatinX in AI Workshop @ NeurIPS 2026 (pendiente de revisión): Dos drives + zonas fuzzy de criticidad; identificado el argumento de redundancia
 - **AopifyJS** — Springer CCIS, 2019: Programación declarativa de agentes basada en FIPA — el precursor arquitectónico
 
 ---
@@ -458,7 +458,7 @@ Este proyecto evoluciona de:
 - [AopifyJS](https://github.com/codewithpatelo/aopifyjs) (2019, agentes declarativos FIPA en Node.js) — Springer CCIS
 - **Pro-Action Γ (n=6)** — ICML 2026 LatinX in AI Workshop — operador completo, factibilidad
 - **Pro-Action Γ Reducido (n=1)** — NLP-School 2026 poster — problema de señal de saciedad
-- **Pro-Action Γ (n=2)** — NeurIPS 2026 Workshop — zonas fuzzy + argumento de redundancia
+- **Pro-Action Γ (n=2)** — LatinX in AI Workshop @ NeurIPS 2026 (pendiente de revisión) — zonas fuzzy + argumento de redundancia
 - **Binsai.PY** — RSLA 2026 — sustrato de simulación parametrizable
 
 ---
