@@ -33,7 +33,7 @@
 
 Instead of only asking what an agent can do, Binsai helps decide **why, when, and whether it should act**.
 
-**Current version**: 0.0.1.dev0 · **Status**: MVP 1 "Hungry Agents" ✅ — [See demo](examples/mvp1_hungry/)
+**Current version**: 0.0.1 · **Status**: MVP 1 "Hungry Agents" ✅ — [See demo](examples/mvp1_hungry/)
 
 ---
 
@@ -401,7 +401,7 @@ Copyright (C) 2026 Patricio Gerpe
 
 En lugar de preguntar solo qué puede hacer un agente, Binsai ayuda a decidir **por qué, cuándo y si debe actuar**.
 
-**Versión actual**: 0.0.1.dev0 · **Estado**: MVP 1 "Agentes Hambrientos" ✅
+**Versión actual**: 0.0.1 · **Estado**: MVP 1 "Agentes Hambrientos" ✅
 
 ---
 
