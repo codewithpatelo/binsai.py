@@ -8,7 +8,7 @@ authors:
     email: pj.patriciojulian@gmail.com
 repository-code: "https://github.com/codewithpatelo/binsai"
 license: GPL-3.0
-version: 0.0.1.dev0
+version: 0.1.0
 date-released: "2026-05-12"
 keywords:
   - ai-agents

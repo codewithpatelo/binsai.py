@@ -33,7 +33,7 @@
 
 Instead of only asking what an agent can do, Binsai helps decide **why, when, and whether it should act**.
 
-**Current version**: 0.0.1 · **Status**: MVP 1 "Hungry Agents" ✅ — [See demo](examples/mvp1_hungry/)
+**Current version**: 0.1.0 · **Status**: MVP 1 "Hungry Agents" ✅ — [See demo](examples/mvp1_hungry/)
 
 ---
 
@@ -44,7 +44,7 @@ Binsai is the 4th iteration of a research program that asks: *what makes agents 
 | Year | Work | Venue | What we learned |
 |---|---|---|---|
 | 2019 | [AopifyJS](https://github.com/codewithpatelo/aopifyjs) | Springer CCIS | FIPA-based declarative agents; roadmap already included "homeostatic motives" |
-| 2026 | Pro-Action Γ (n=6) | ICML 2026 LatinX in AI Workshop | Full multi-subsystem operator; feasibility proven with 6 drives in iterated prisoner's dilemma, but 6 drives = over-engineering |
+| 2026 | Pro-Action Γ (n=6) | ICML 2026 LatinX in AI Workshop | Full multi-subsystem operator; feasibility proven with 6 drives in iterated prisoner's dilemma, but 6 simultaneous drives proved hard to interpret — later work reduced to n=1 and n=2 |
 | 2026 | Pro-Action Γ Reduced (n=1) | NLP-School South America (poster) | Single-drive regulation in adversarial debate; emergent behavior, but regulation uncorrelated with collapse reduction → discovered the *satiety-signal problem* |
 | 2026 | Pro-Action Γ (n=2) | LatinX in AI Workshop @ NeurIPS 2026 (pending review) | Two drives with fuzzy criticality zones; identified the **redundancy argument**: if a scalar estimator exists, estimate-then-optimize beats regulation. Γ only makes sense where scalarization is impossible. |
 | 2026 | **Binsai.PY** | RSLA 2026 | Parameterizable simulation substrate; metabolic drive demo; **antagonistic tensions** scenario |
@@ -248,7 +248,7 @@ This release is **MVP1 — Hungry Agent**. It implements the metabolic drive lay
 Since 2019, the [AopifyJS roadmap](https://github.com/codewithpatelo/aopifyjs) included:
 > "Homeostatic Motives system"
 
-Binsai now implements this with philosophical grounding: **10 canonical drives** across 6 ontological levels (Bunge-Romero):
+Binsai now implements this with philosophical grounding: **10 canonical drives** across 6 ontological levels (Bunge-Romero), activated per-domain — not all at once, avoiding the n=6 over-engineering trap:
 
 - **S1 Material**: `δ_metabolic` (tokens, energy, latency) — **MVP 1**
 - **S3 Biological**: `δ_safety`, `δ_epistemic`, `δ_coherence`, `δ_competence` — **MVP 2**
@@ -256,7 +256,7 @@ Binsai now implements this with philosophical grounding: **10 canonical drives**
 - **S5 Social**: `δ_relatedness`, `δ_autonomy`
 - **S6 Technological**: `δ_meaning` (purpose)
 
-Each drive has set-points, decay rates, and **fuzzy sigmoid activation** (no hard thresholds). Per Driveplexity A2: `D(δ) = (δ · σ(k·δ))²`.
+Each drive has set-points, decay rates, and **fuzzy sigmoid activation** (no hard thresholds).
 
 ### Tri-process arbitration
 
@@ -401,7 +401,7 @@ Copyright (C) 2026 Patricio Gerpe
 
 En lugar de preguntar solo qué puede hacer un agente, Binsai ayuda a decidir **por qué, cuándo y si debe actuar**.
 
-**Versión actual**: 0.0.1 · **Estado**: MVP 1 "Agentes Hambrientos" ✅
+**Versión actual**: 0.1.0 · **Estado**: MVP 1 "Agentes Hambrientos" ✅
 
 ---
 
@@ -412,7 +412,7 @@ Binsai es la 4ta iteración de un programa de investigación que pregunta: *¿qu
 | Año | Trabajo | Venue | Qué aprendimos |
 |---|---|---|---|
 | 2019 | [AopifyJS](https://github.com/codewithpatelo/aopifyjs) | Springer CCIS | Agentes declarativos FIPA; el roadmap ya incluía "motivos homeostáticos" |
-| 2026 | Pro-Action Γ (n=6) | ICML 2026 LatinX in AI Workshop | Operador multi-subsistema completo; factibilidad con 6 drives en dilema del prisionero iterado, pero 6 drives = sobreingeniería |
+| 2026 | Pro-Action Γ (n=6) | ICML 2026 LatinX in AI Workshop | Operador multi-subsistema completo; factibilidad con 6 drives en dilema del prisionero iterado, pero 6 drives simultáneos resultaron difíciles de interpretar — trabajos posteriores redujeron a n=1 y n=2 |
 | 2026 | Pro-Action Γ Reducido (n=1) | NLP-School Sudamérica (poster) | Regulación mono-drive en debate adversarial; comportamiento emergente, pero la regulación no correlacionó con la reducción de colapso → descubrimos el *problema de señal de saciedad* |
 | 2026 | Pro-Action Γ (n=2) | LatinX in AI Workshop @ NeurIPS 2026 (pendiente de revisión) | Dos drives con zonas fuzzy de criticidad; identificamos el **argumento de redundancia**: si existe un estimador escalar del estado, estimar-y-optimizar domina a la regulación. Γ solo tiene sentido donde la escalarización es imposible. |
 | 2026 | **Binsai.PY** | RSLA 2026 | Sustrato de simulación parametrizable; demo de drive metabólico; escenario de **tensiones antagónicas** |
@@ -618,7 +618,7 @@ Este release es **MVP1 — Agente Hambriento**. Implementa la capa de drive meta
 Desde 2019, el [roadmap de AopifyJS](https://github.com/codewithpatelo/aopifyjs) incluía:
 > "Homeostatic Motives system"
 
-Binsai implementa esto con fundamento filosófico: **10 drives canónicos** en 6 niveles ontológicos (Bunge-Romero):
+Binsai implementa esto con fundamento filosófico: **10 drives canónicos** en 6 niveles ontológicos (Bunge-Romero), activados por dominio — no todos a la vez, evitando la trampa de sobreingeniería del n=6:
 
 - **S1 Material**: `δ_metabolic` (tokens, energía, latencia) — **MVP 1**
 - **S3 Biológico**: `δ_safety`, `δ_epistemic`, `δ_coherence`, `δ_competence` — **MVP 2**
