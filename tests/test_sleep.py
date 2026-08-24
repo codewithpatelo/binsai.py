@@ -22,7 +22,8 @@ def make_agent(delta: float = 0.50) -> BinsaiAgent:
 
 def add_demands(agent: BinsaiAgent, n: int) -> None:
     for i in range(n):
-        d = Demand(id=f"d{i}", target_aid=agent.aid, topic="test", t_emitted=0)
+        d = Demand(id=f"d{i}", target_aid=agent.aid, target_name=agent.name,
+                    topic="test", message="test message", t_emitted=0)
         agent.pending_demands.append(d)
 
 
@@ -30,7 +31,8 @@ class TestConsolidationWorker:
     def test_processes_one_item_per_tick(self):
         agent = make_agent()
         add_demands(agent, 3)
-        worker = ConsolidationWorker()
+        from binsai.sleep import SleepConfig
+        worker = ConsolidationWorker(config=SleepConfig(batch_size=1))
         worker.tick(agent, agent.drives.get("metabolic"), t=1)
         assert len(agent.pending_demands) == 2
 
@@ -100,14 +102,19 @@ class TestMaybeWake:
     def test_does_not_wake_if_queue_not_empty(self):
         agent = make_agent(delta=0.10)
         add_demands(agent, 3)
-        # even with δ low, queue must drain first
-        result = maybe_wake(agent, agent.drives.get("metabolic"), t=1)
-        # first call processes 1 item, then checks — still 2 items, won't wake
+        from binsai.sleep import SleepConfig
+        worker = ConsolidationWorker(config=SleepConfig(batch_size=1))
+        guard  = WakeGuard()
+        worker.tick(agent, agent.drives.get("metabolic"), t=1)
+        result = guard.check(agent, agent.drives.get("metabolic"), t=1)
         assert result is False
 
     def test_wakes_after_queue_drained(self):
         agent = make_agent(delta=0.10)
         add_demands(agent, 1)
-        # first call processes the 1 item, checks — queue now empty, δ low → wake
-        result = maybe_wake(agent, agent.drives.get("metabolic"), t=1)
+        from binsai.sleep import SleepConfig
+        worker = ConsolidationWorker(config=SleepConfig(batch_size=1))
+        guard  = WakeGuard()
+        worker.tick(agent, agent.drives.get("metabolic"), t=1)
+        result = guard.check(agent, agent.drives.get("metabolic"), t=1)
         assert result is True

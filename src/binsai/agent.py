@@ -82,6 +82,8 @@ class BinsaiAgent:
         dry_run_llm:     bool               = False,
         temperature:     float              = 1.0,
         rng:             Optional[Any]      = None,
+        backend:         Any                = None,
+        action_set:      Any                = None,
     ) -> None:
         import random as _random
 
@@ -95,6 +97,11 @@ class BinsaiAgent:
         self.dry_run_llm  = dry_run_llm
         self.temperature  = temperature
         self._rng         = rng or _random.Random()
+        self.backend      = backend
+        if action_set is None:
+            from .action_registry import ActionSet
+            action_set = ActionSet.mvp1()
+        self.action_set   = action_set
 
         # User-tunable regulatory budgets (cost / latency / token targets)
         self.budgets = RegulatoryBudgets()
@@ -207,7 +214,18 @@ class BinsaiAgent:
         # 1. Basal decay only during ACTIVE — sleep is restorative, no metabolic burn
         # Ablation agents have no drive regulation, so no decay (flat line)
         if not self._lifecycle.is_suspended() and not self.ablation_off:
-            self.drives.update_all(tick=t)
+            transitions = self.drives.update_all(tick=t)
+            # Emit zone transition events per drive
+            for drive_name, evts in transitions.items():
+                for evt_type, zone_name in evts:
+                    self.emit(f"drive.{drive_name}.{evt_type}", {
+                        "drive": drive_name, "zone": zone_name, "tick": t,
+                    })
+                    # Also emit drive-specific zone events: drive.metabolic.critical, etc.
+                    if evt_type == "zone.enter":
+                        self.emit(f"drive.{drive_name}.{zone_name}", {
+                            "drive": drive_name, "zone": zone_name, "tick": t,
+                        })
 
         summary: dict = {
             "agent":    self.name,
@@ -259,7 +277,7 @@ class BinsaiAgent:
             # Move buffered mailbox demands into pending_demands deque
             buffered_topics = []
             for msg in self.mailbox.drain_inbox():
-                topic = getattr(msg, "topic", None) or getattr(msg, "content", "")
+                topic = (msg.content or {}).get("topic", "") if hasattr(msg, "content") else ""
                 if topic:
                     buffered_topics.append(topic)
                 self._enqueue_from_message(msg)
@@ -328,15 +346,15 @@ class BinsaiAgent:
             delta=delta,
             has_demand=has_demand,
             set_point=set_point,
-            ablation_off=False,   # regulated path always uses full distribution
+            ablation_off=False,
             temperature=self.temperature,
             demand_difficulty=demand_difficulty,
             pending_labels=len(self.pending_task_labels),
+            action_set=self.action_set,
         )
         chosen_name = sample_action(distribution, self._rng)
-        kind = ActionKind(chosen_name)
 
-        return self._start_chosen_action(kind, drive, t, demand_difficulty=demand_difficulty)
+        return self._start_chosen_action(chosen_name, drive, t, demand_difficulty=demand_difficulty)
 
     def _tick_ablation(self, t: int) -> str:
         """Unregulated tick: respond to every demand at weak tier, no regulation.
@@ -361,6 +379,7 @@ class BinsaiAgent:
             len(self.pending_demands),
             model_cfg=model_cfg,
             baseline_mode=True,
+            backend=self.backend,
         )
         execution.result = result
         self.last_telemetry = telemetry
@@ -396,61 +415,58 @@ class BinsaiAgent:
         self._on_action_complete(execution, t)
         return ActionKind.RESPOND_SLOW.value
 
-    def _start_chosen_action(self, kind: ActionKind, drive: Optional[Drive], t: int,
+    def _start_chosen_action(self, kind: ActionKind | str, drive: Optional[Drive], t: int,
                               demand_difficulty: float = 0.0) -> str:
-        """Dispatch chosen action kind."""
-        if kind == ActionKind.SLEEP:
-            # Set the sleep maintenance task as current (visible in Kanban DOING)
-            self.current_task_label = "Compress & consolidate context"
-            self._lifecycle.transition(
-                FIPAState.SUSPENDED,
-                cause=f"regulatory sleep at t={t} δ={drive.value:.3f}" if drive else f"sleep at t={t}",
-                tick=t,
-            )
-            self.emit("lifecycle", {
-                "event": "suspended",
-                "agent": self.name,
-                "tick":  t,
-                "cause": "regulatory: sleep action selected",
-            })
-            return "sleep"
+        """Dispatch chosen action via its handler.
 
-        if kind == ActionKind.IDLE:
+        kind can be an ActionKind enum value or a plain string (for custom actions).
+        """
+        action_name = kind.value if isinstance(kind, ActionKind) else str(kind)
+        action_spec = self.action_set.get(action_name)
+        if action_spec is None:
             return "idle"
 
-        # Actions that may need a demand
-        spec = ACTIONS[kind]
+        # If the action has a handler, run it for side effects (sleep, defer, idle, satiated)
+        if action_spec.handler is not None:
+            handler_result = action_spec.handler(self, drive, t, None, demand_difficulty)
+            if handler_result in ("sleep", "idle", "defer", "satiated"):
+                return handler_result
+
+        # ── Actions that need demand / LLM execution ──
         demand = None
-        if spec.requires_demand:
+        if action_spec.requires_demand:
             if not self.pending_demands:
-                # Fallback: if demand evaporated between decision and execution, idle
                 return "idle"
             demand = self.pending_demands.popleft()
 
-        execution = start_action(kind, t, demand=demand)
-        # Persist the predicted difficulty so multi-tick completion can use it
+        # Build execution using string kind (custom actions won't be in ActionKind enum)
+        from .actions import ActionKind as AK
+        try:
+            ek = AK(action_name)
+        except ValueError:
+            ek = AK.IDLE  # fallback for custom actions
+        execution = start_action(ek, t, demand=demand)
         execution.demand_difficulty = demand_difficulty
-        # Pop next task label from queue; fall back to demand topic + action kind
         if self.pending_task_labels:
             self.current_task_label = self.pending_task_labels.popleft()
         else:
             fallback_topic = getattr(demand, 'topic', None) if demand else None
-            self.current_task_label = fallback_topic or kind.value.replace('_', ' ')
+            self.current_task_label = fallback_topic or action_name.replace('_', ' ')
 
-        # Apply flat start cost (action-energy term, separate from token cost)
-        if drive and spec.delta_cost > 0:
-            drive.deplete(spec.delta_cost)
+        # Apply flat start cost
+        if drive and action_spec.delta_cost > 0:
+            drive.deplete(action_spec.delta_cost)
 
         # Single-tick actions: execute LLM immediately
-        if spec.ticks <= 1:
+        if action_spec.ticks <= 1:
             self._run_llm_and_apply_cost(execution, drive, demand_difficulty)
             self._on_action_complete(execution, t)
-            return kind.value
+            return action_name
 
         # Multi-tick: store in-progress
-        execution.ticks_remaining -= 1  # first tick consumed now
+        execution.ticks_remaining -= 1
         self.current_action = execution
-        return kind.value
+        return action_name
 
     def _appraise(self, topic: str, message: str, drive: Optional[Drive]) -> AppraisedTask:
         """Agent's own difficulty appraisal of an incoming demand.
@@ -465,7 +481,7 @@ class BinsaiAgent:
                 getattr(self.last_appraisal, "_topic", "") == topic):
             return self.last_appraisal
 
-        appraisal = appraise_demand(topic, message)
+        appraisal = appraise_demand(topic, message, backend=self.backend)
         appraisal._topic = topic  # type: ignore[attr-defined]
         self.last_appraisal = appraisal
 
@@ -551,6 +567,7 @@ class BinsaiAgent:
             execution, drive, len(self.pending_demands),
             model_cfg=model_cfg,
             pressure_mode=pressure,
+            backend=self.backend,
         )
         execution.result = result
         self.last_telemetry = telemetry
@@ -778,8 +795,6 @@ class BinsaiAgent:
         }
 
     def __repr__(self) -> str:
-        return (
-            f"BinsaiAgent({self.name}#{self.aid}, "
-            f"status={self.status}, "
-            f"δ={self.drives.get('metabolic').value:.3f if self.drives.get('metabolic') else '?'})"
-        )
+        m = self.drives.get("metabolic")
+        delta_str = f"{m.value:.3f}" if m else "?"
+        return f"BinsaiAgent({self.name}#{self.aid}, status={self.status}, delta={delta_str})"

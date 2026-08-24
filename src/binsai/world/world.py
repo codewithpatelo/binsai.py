@@ -31,6 +31,8 @@ class AgentConfig:
     initial_delta:   float        = 0.30
     temperature:     float        = 1.0
     ablation_off:    bool         = False   # per-agent regulation toggle
+    drive_names:     list[str] | None = None  # custom drive subset (None = ["metabolic"])
+    drive_configs:   list[dict] | None = None  # custom drive params per drive
 
 
 @dataclass
@@ -41,6 +43,7 @@ class WorldConfig:
     ablation_off:   bool                 = False   # global override (all agents)
     dry_run_llm:    bool                 = False   # real LLM calls by default
     speed:          float                = 2.0
+    routing_policy: str                  = "demo"  # "fair" (paper) or "demo" (visible escalation)
     agents: list[AgentConfig] = field(default_factory=lambda: [
         AgentConfig(name="Alpha", lambda_override=0.004, initial_delta=0.28, temperature=0.8),
         AgentConfig(name="Beta",  lambda_override=0.006, initial_delta=0.30, temperature=1.0),
@@ -57,6 +60,8 @@ class AgentFrame:
     status:               str
     delta:                float | None
     zone:                 str | None
+    lambda_rate:          float | None
+    temperature:          float | None
     memberships:          dict[str, float]
     queue:                int
     buffered:             int             # messages buffered during SUSPENDED
@@ -116,6 +121,9 @@ class World:
         self._clock = StepClock(seed=self.config.seed)
         self._events_this_tick: list[dict] = []
 
+        # LLM backend — shared across all agents
+        self._backend = self._make_backend()
+
         self.agents = self._build_agents()
         self.dummy_human = DummyHuman(
             targets=self.agents,
@@ -126,10 +134,27 @@ class World:
         for agent in self.agents:
             agent.activate()
 
+    @property
+    def backend_name(self) -> str:
+        return getattr(self._backend, "name", "?")
+
+    def _make_backend(self):
+        from ..llm import get_backend
+        return get_backend(dry_run=self.config.dry_run_llm, seed=self.config.seed)
+
     def _build_agents(self) -> list[BinsaiAgent]:
         agents = []
         for i, cfg in enumerate(self.config.agents):
-            drives   = Drives.from_names(["metabolic"])
+            drive_names = cfg.drive_names if cfg.drive_names is not None else ["metabolic"]
+            drives   = Drives.from_names(drive_names)
+            # Apply custom drive configs if provided
+            if cfg.drive_configs:
+                for dc in cfg.drive_configs:
+                    d = drives.get(dc.get("name", ""))
+                    if d:
+                        for k, v in dc.items():
+                            if k != "name" and hasattr(d, k):
+                                setattr(d, k, v)
             metabolic = drives.get("metabolic")
             if metabolic:
                 metabolic.value = cfg.initial_delta
@@ -144,6 +169,7 @@ class World:
                 ablation_off=agent_ablation,
                 temperature=cfg.temperature,
                 rng=random.Random(self.config.seed + 100 + i),
+                backend=self._backend,
             )
             agent.on_any(self._capture_event)
             agents.append(agent)
@@ -209,12 +235,15 @@ class World:
             cons_summary = a.last_consolidation_summary
             a.last_consolidation_summary = None
 
+            _met = a.drives.get("metabolic")
             agent_frames.append(AgentFrame(
                 aid=a.aid,
                 name=a.name,
                 status=a.status,
-                delta=round(a.drives.get("metabolic").value, 4) if a.drives.get("metabolic") else None,
-                zone=a.drives.get("metabolic").get_zone() if a.drives.get("metabolic") else None,
+                delta=round(_met.value, 4) if _met else None,
+                zone=_met.get_zone() if _met else None,
+                lambda_rate=_met.lambda_rate if _met else None,
+                temperature=a.temperature,
                 memberships={
                     k: round(v, 4)
                     for k, v in (a.drives.get("metabolic").zone_memberships() if a.drives.get("metabolic") else {}).items()
@@ -267,6 +296,8 @@ class World:
                 "lambda_demand":        self.config.lambda_demand,
                 "ablation_off":         self.config.ablation_off,
                 "speed":                self.config.speed,
+                "backend":              self.backend_name,
+                "routing_policy":       self.config.routing_policy,
                 "kpi_reg_tokens":       reg_tok,
                 "kpi_unreg_tokens":     unreg_tok,
                 "kpi_reg_cost_usd":     round(reg_cost, 6),
@@ -293,6 +324,27 @@ class World:
     def set_lambda_demand(self, value: float) -> None:
         self.config.lambda_demand      = value
         self.dummy_human.lambda_demand = value
+
+    def run(self, ticks: int = 100):
+        """Run the simulation for N ticks, returning a SimulationLog."""
+        from ..report import SimulationLog
+        log = SimulationLog(
+            config={
+                "seed":          self.config.seed,
+                "lambda_demand": self.config.lambda_demand,
+                "ablation_off":  self.config.ablation_off,
+                "dry_run_llm":   self.config.dry_run_llm,
+                "speed":         self.config.speed,
+                "backend":       self.backend_name,
+            },
+            metadata={
+                "n_agents": len(self.agents),
+                "agent_names": [a.name for a in self.agents],
+            },
+        )
+        for _ in range(ticks):
+            log.record(self.step())
+        return log
 
     def reset(self) -> None:
         self.__init__(self.config)

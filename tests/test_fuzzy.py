@@ -62,13 +62,15 @@ class TestActionDistribution:
 
     def test_ablation_returns_uniform_with_demand(self):
         dist = compute_action_distribution(0.30, has_demand=True, ablation_off=True)
-        n = len(ACTIONS_WITH_DEMAND)
+        # Ablation removes sleep from the action set → 4 actions
+        n = len(ACTIONS_WITH_DEMAND) - 1
         for a, p in dist.items():
             assert abs(p - 1.0 / n) < 1e-9
 
     def test_ablation_returns_uniform_no_demand(self):
         dist = compute_action_distribution(0.30, has_demand=False, ablation_off=True)
-        n = len(ACTIONS_NO_DEMAND)
+        # Ablation removes sleep from the action set → 2 actions
+        n = len(ACTIONS_NO_DEMAND) - 1
         for a, p in dist.items():
             assert abs(p - 1.0 / n) < 1e-9
 

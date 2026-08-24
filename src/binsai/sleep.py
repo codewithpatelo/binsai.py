@@ -112,8 +112,13 @@ class ConsolidationWorker:
         if n_wm + n_pending == 0:
             return
 
+        backend = getattr(agent, "backend", None)
+        if backend is None:
+            from .actions import _get_default_backend
+            backend = _get_default_backend()
+
         try:
-            from .actions import call_llm, ModelConfig
+            from .actions import ModelConfig
             system = (
                 "You are a memory consolidation module for an AI agent during sleep. "
                 "Produce a compact summary of recent work and pending tasks. "
@@ -129,7 +134,7 @@ class ConsolidationWorker:
                 f"Pending topics: {pending_str}"
             )
             cfg = ModelConfig(model="deepseek-v4-flash", thinking=False)
-            raw, _ = call_llm(system, user, cfg=cfg, max_tokens=256)
+            raw, _ = backend.call(system, user, cfg=cfg, max_tokens=256)
 
             from .actions import _extract_json
             data    = _extract_json(raw)

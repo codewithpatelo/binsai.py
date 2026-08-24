@@ -5,17 +5,20 @@ They verify that:
   1. The LLM actually reads the regulatory state embedded in the prompt
   2. Responses differ meaningfully between oversated and critical states
   3. The JSON output is parseable and contains required fields
-  4. Token costs are tracked and map correctly to δ increments
-  5. Proact generates a valid insight when δ is low
+  4. Token costs are tracked and map correctly to delta increments
+  5. Proact generates a valid insight when delta is low
 
-Skip if DEEPSEEK_API_KEY is not set (CI without key should not fail).
-Mark slow with -m llm to opt in: pytest -m llm tests/test_state_injection_llm.py
+All tests in this module are marked 'llm' and skipped by default.
+Run with: pytest -m llm
 """
+import pytest
+pytestmark = pytest.mark.llm
 
 import json
 import os
 import pytest
 
+import os
 from binsai.drives import Drive, Stratum
 from binsai.actions import (
     ActionKind,
@@ -23,16 +26,21 @@ from binsai.actions import (
     regulatory_state_to_prompt,
     execute_action_llm,
     token_cost_to_delta,
-    call_llm,
     _system_prompt,
     _respond_fast_user,
     _respond_slow_user,
     _proact_user,
 )
+from binsai.llm import get_backend
 
 pytestmark = pytest.mark.llm
 
 HAS_KEY = bool(os.getenv("DEEPSEEK_API_KEY"))
+
+
+@pytest.fixture(scope="session")
+def backend():
+    return get_backend()
 
 
 @pytest.fixture(autouse=True)
@@ -108,38 +116,38 @@ class TestStateInjectionBlock:
 # ── 2. LLM call returns parseable JSON ───────────────────────────────────────
 
 class TestLLMCall:
-    def test_call_llm_returns_string_and_token_count(self):
+    def test_call_llm_returns_string_and_token_count(self, backend):
         d = make_drive(0.30)
         system = _system_prompt(d)
         user   = _respond_fast_user("quarterly summary")
-        content, tokens = call_llm(system, user, max_tokens=128)
+        content, tokens = backend.call(system, user, max_tokens=128)
         assert isinstance(content, str) and len(content) > 0
-        assert tokens > 0
+        assert tokens.total_tokens > 0
 
-    def test_respond_fast_parses_to_json(self):
+    def test_respond_fast_parses_to_json(self, backend):
         d = make_drive(0.30)
         ex = make_execution(ActionKind.RESPOND_FAST, "project status")
-        result, tokens = execute_action_llm(ex, d, dry_run=False)
+        result, tokens = execute_action_llm(ex, d, backend=backend)
         assert result is not None
         assert "response" in result or "raw" in result  # raw = parse error fallback
-        assert tokens > 0
+        assert tokens.total_tokens > 0
 
-    def test_respond_slow_parses_to_json(self):
+    def test_respond_slow_parses_to_json(self, backend):
         d = make_drive(0.10)  # oversated — agent can afford slow response
         ex = make_execution(ActionKind.RESPOND_SLOW, "risk analysis")
-        result, tokens = execute_action_llm(ex, d, dry_run=False)
+        result, tokens = execute_action_llm(ex, d, backend=backend)
         assert result is not None
-        assert tokens > 0
+        assert tokens.total_tokens > 0
 
-    def test_proact_parses_to_json(self):
+    def test_proact_parses_to_json(self, backend):
         d = make_drive(0.05)  # heavily oversated
         ex = ActionExecution(
             kind=ActionKind.PROACT, started_at=1, ticks_remaining=0,
         )
-        result, tokens = execute_action_llm(ex, d, queue_size=2, dry_run=False)
+        result, tokens = execute_action_llm(ex, d, queue_size=2, backend=backend)
         assert result is not None
         assert "insight" in result or "raw" in result
-        assert tokens > 0
+        assert tokens.total_tokens > 0
 
 
 # ── 3. State shapes LLM behavior (the actual thesis test) ────────────────────
@@ -153,8 +161,8 @@ class TestStateConditionedResponse:
     - CoT (respond_slow) → 'thought' key present and non-empty
     """
 
-    def test_critical_response_is_shorter_than_oversated(self):
-        """Critical agent (δ=0.85) should produce briefer output than oversated (δ=0.05)."""
+    def test_critical_response_is_shorter_than_oversated(self, backend):
+        """Critical agent (delta=0.85) should produce briefer output than oversated (delta=0.05)."""
         topic = "department update"
 
         d_critical  = make_drive(0.85)
@@ -163,8 +171,8 @@ class TestStateConditionedResponse:
         ex_crit = make_execution(ActionKind.RESPOND_FAST, topic)
         ex_over = make_execution(ActionKind.RESPOND_FAST, topic)
 
-        res_crit, tok_crit = execute_action_llm(ex_crit, d_critical, dry_run=False)
-        res_over, tok_over = execute_action_llm(ex_over, d_oversated, dry_run=False)
+        res_crit, tok_crit = execute_action_llm(ex_crit, d_critical, backend=backend)
+        res_over, tok_over = execute_action_llm(ex_over, d_oversated, backend=backend)
 
         # Oversated agent should use more tokens (more elaborate response)
         # We allow a soft assertion: at least one measure should differ
@@ -178,31 +186,31 @@ class TestStateConditionedResponse:
             f"Oversated response: {resp_over[:100]}"
         )
 
-    def test_respond_slow_includes_thought_key(self):
+    def test_respond_slow_includes_thought_key(self, backend):
         """respond_slow uses CoT prompt → model should return 'thought' field."""
         d  = make_drive(0.10)  # oversated, respond_slow appropriate
         ex = make_execution(ActionKind.RESPOND_SLOW, "technical architecture review")
-        result, tokens = execute_action_llm(ex, d, dry_run=False)
+        result, tokens = execute_action_llm(ex, d, backend=backend)
         assert result is not None
         assert "thought" in result, (
             f"respond_slow should include 'thought' field (CoT). Got: {result}"
         )
         assert len(result.get("thought", "")) > 10, "Expected non-trivial thought content"
 
-    def test_proact_includes_insight_key(self):
+    def test_proact_includes_insight_key(self, backend):
         """proact must include 'insight' key with non-trivial content."""
         d  = make_drive(0.05)
         ex = ActionExecution(kind=ActionKind.PROACT, started_at=1, ticks_remaining=0)
-        result, tokens = execute_action_llm(ex, d, queue_size=0, dry_run=False)
+        result, tokens = execute_action_llm(ex, d, queue_size=0, backend=backend)
         assert result is not None
         assert "insight" in result, f"proact missing 'insight'. Got: {result}"
         assert len(result.get("insight", "")) > 10
 
-    def test_scrambled_labels_produce_valid_json(self):
+    def test_scrambled_labels_produce_valid_json(self, backend):
         """Even with scrambled labels, the LLM should return parseable JSON."""
         d  = make_drive(0.50)
         ex = make_execution(ActionKind.RESPOND_FAST, "performance review")
-        result, tokens = execute_action_llm(ex, d, scramble_labels=True, dry_run=False)
+        result, tokens = execute_action_llm(ex, d, scramble_labels=True, backend=backend)
         assert result is not None
         assert tokens > 0
 
@@ -216,7 +224,7 @@ class TestTokenCostMapping:
     def test_more_tokens_higher_delta_cost(self):
         assert token_cost_to_delta(300) > token_cost_to_delta(80)
 
-    def test_respond_fast_costs_less_than_respond_slow_in_practice(self):
+    def test_respond_fast_costs_less_than_respond_slow_in_practice(self, backend):
         """Real API: respond_fast uses fewer tokens → smaller δ increment."""
         d_f = make_drive(0.30)
         d_s = make_drive(0.30)
@@ -224,8 +232,8 @@ class TestTokenCostMapping:
         ex_f = make_execution(ActionKind.RESPOND_FAST, "status")
         ex_s = make_execution(ActionKind.RESPOND_SLOW, "detailed status with reasoning")
 
-        _, tok_fast = execute_action_llm(ex_f, d_f, dry_run=False)
-        _, tok_slow = execute_action_llm(ex_s, d_s, dry_run=False)
+        _, tok_fast = execute_action_llm(ex_f, d_f, backend=backend)
+        _, tok_slow = execute_action_llm(ex_s, d_s, backend=backend)
 
         cost_fast = token_cost_to_delta(tok_fast)
         cost_slow = token_cost_to_delta(tok_slow)
@@ -235,12 +243,12 @@ class TestTokenCostMapping:
             f"slow ({tok_slow} tok, δ+{cost_slow:.5f})"
         )
 
-    def test_real_llm_call_increments_drive_delta(self):
+    def test_real_llm_call_increments_drive_delta(self, backend):
         """After a real LLM call, the drive's δ should have increased."""
         d  = make_drive(0.30)
         ex = make_execution(ActionKind.RESPOND_FAST, "test topic")
         before = d.value
-        result, tokens = execute_action_llm(ex, d, dry_run=False)
+        result, tokens = execute_action_llm(ex, d, backend=backend)
         # Caller is responsible for applying cost; simulate here
         d.deplete(token_cost_to_delta(tokens))
         assert d.value > before, "δ should increase after LLM call consumes tokens"

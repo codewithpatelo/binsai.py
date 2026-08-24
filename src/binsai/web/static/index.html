@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Binsai MVP1 — Inbox bajo presión</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0d1117; color: #e6edf3; font-family: monospace; display: flex; height: 100vh; overflow: hidden; }
+    #canvas-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    #sidebar {
+      width: 260px; background: #161b22; border-left: 1px solid #30363d;
+      display: flex; flex-direction: column; padding: 12px 14px; gap: 8px; overflow-y: auto;
+    }
+    #sidebar h2 { font-size: 12px; color: #58a6ff; text-transform: uppercase; letter-spacing: 1px; margin: 0; }
+    .slider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+    .control-group { display: flex; flex-direction: column; gap: 3px; }
+    .control-group label { font-size: 10px; color: #8b949e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .control-group input[type=range] { width: 100%; accent-color: #58a6ff; height: 3px; cursor: pointer; }
+    .control-group input[type=number] { width: 72px; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 3px 5px; font-family: monospace; font-size: 11px; }
+    button {
+      background: #21262d; border: 1px solid #30363d; color: #e6edf3;
+      padding: 6px 12px; cursor: pointer; font-family: monospace; font-size: 12px;
+      border-radius: 4px; transition: background 0.15s;
+    }
+    button:hover { background: #30363d; }
+    button.active  { background: #238636; border-color: #2ea043; color: #fff; }
+    button.danger  { background: #da3633; border-color: #f85149; color: #fff; }
+    button.running { background: #1a7f37; border-color: #3fb950; color: #fff;
+                     box-shadow: 0 0 0 3px rgba(63,185,80,0.30); }
+    button.paused  { background: #9a6700; border-color: #d29922; color: #fff;
+                     box-shadow: 0 0 0 3px rgba(210,153,34,0.30); }
+    #legend { font-size: 10px; color: #484f58; padding: 4px 0 2px 0; line-height: 1.8; }
+    #legend span { margin-right: 10px; white-space: nowrap; }
+    .leg-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
+    #log {
+      flex: 1; min-height: 260px; background: #0d1117; border: 1px solid #30363d; padding: 8px;
+      font-size: 10px; overflow-y: auto; line-height: 1.6;
+    }
+    .log-line { color: #8b949e; }
+    .log-line.lifecycle { color: #d2a8ff; }
+    .log-line.action    { color: #79c0ff; }
+    .log-line.sleep     { color: #a5d6ff; }
+    .log-line.demand    { color: #7ee787; }
+    .log-line.critical  { color: #f85149; }
+    .log-line.proact    { color: #ffa657; }
+    #status-bar { font-size: 10px; color: #484f58; padding: 4px 0; }
+    .ablation-badge {
+      display: none; background: #f85149; color: #fff; font-size: 10px;
+      padding: 2px 6px; border-radius: 3px; font-weight: bold;
+    }
+    .ablation-badge.active { display: inline-block; }
+  </style>
+</head>
+<body>
+
+<div id="canvas-col">
+  <canvas id="game-canvas"></canvas>
+</div>
+
+<div id="sidebar">
+  <h2>Binsai MVP1 <span class="ablation-badge" id="ablation-badge">ABLATION</span></h2>
+
+  <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:2px;">
+    <button id="btn-start" style="flex:1;">▶ Start</button>
+    <button id="btn-pause" style="flex:1;">⏸ Pause</button>
+    <button id="btn-reset" style="flex:1;">↺ Reset</button>
+  </div>
+
+  <h2 style="margin-top:4px;">Simulation</h2>
+  <div class="slider-grid">
+    <div class="control-group">
+      <label>Speed (t/s): <span id="speed-val">2</span></label>
+      <input type="range" id="speed" min="0.5" max="10" step="0.5" value="2">
+    </div>
+    <div class="control-group">
+      <label>λ demand (global): <span id="lambda-val">0.5</span></label>
+      <input type="range" id="lambda" min="0" max="3" step="0.1" value="0.5">
+    </div>
+  </div>
+
+  <h2 style="margin-top:4px;">Regulatory budgets</h2>
+  <div class="slider-grid">
+    <div class="control-group">
+      <label>Cost/call $<span id="budget-cost-val">0.001</span></label>
+      <input type="range" id="budget-cost" min="0.0001" max="0.01" step="0.0001" value="0.001">
+    </div>
+    <div class="control-group">
+      <label>Latency <span id="budget-latency-val">4000</span>ms</label>
+      <input type="range" id="budget-latency" min="500" max="15000" step="100" value="4000">
+    </div>
+    <div class="control-group">
+      <label>Tokens/call <span id="budget-tokens-val">300</span></label>
+      <input type="range" id="budget-tokens" min="50" max="2000" step="10" value="300">
+    </div>
+  </div>
+
+  <div id="legend" style="font-size:9px; color:#484f58; padding:2px 0; line-height:1.5;">
+    Each agent: λ = metabolic decay rate, T = softmax temperature.<br>
+    Higher λ → burns resources faster → sleeps more.<br>
+    λ demand applies to the boss — shared by all agents.
+  </div>
+
+  <div id="status-bar" style="margin-top:2px; font-size:10px; color:#484f58;">Connecting…</div>
+
+  <h2 style="margin-top:8px;">Event log</h2>
+  <div id="log"></div>
+</div>
+
+<script src="/static/phaser.min.js"></script>
+<script src="/static/scene_inbox.js?v=13"></script>
+<script src="/static/main.js?v=7"></script>
+</body>
+</html>

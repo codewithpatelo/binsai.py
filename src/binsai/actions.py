@@ -19,179 +19,22 @@ State Injection (Γ-style):
 from __future__ import annotations
 
 import json
-import os
-import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional, TYPE_CHECKING
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+from .llm import (
+    DEFAULT_ROUTING,
+    LLMBackend,
+    LLMTelemetry,
+    MAX_TOKENS_BY_TIER,
+    MODEL_TIERS,
+    ModelConfig,
+    PROVIDER_RATES,
+)
 
 if TYPE_CHECKING:
     from .drives import Drive
-
-
-# ── Provider-agnostic telemetry ────────────────────────────────────────────────
-
-@dataclass
-class LLMTelemetry:
-    """Provider-agnostic observables from an LLM call.
-
-    Captured by every adapter regardless of provider. The drive consumes
-    these (via cost_to_delta) rather than raw API responses, so swapping
-    DeepSeek for OpenAI / Anthropic / Groq requires only a new adapter.
-    """
-    prompt_tokens:     int   = 0
-    completion_tokens: int   = 0
-    total_tokens:      int   = 0
-    cost_usd:          float = 0.0
-    latency_ms:        int   = 0
-    context_chars:     int   = 0
-    provider:          str   = ""
-    model:             str   = ""
-    tier:              str   = "main"   # "weak" | "main" | "strong"
-
-
-# ── Provider registry (pricing + routing tiers) ────────────────────────────────
-
-# Per-token USD rates as of 2024-2025. Update via PROVIDER_RATES dict.
-# Source: provider public docs (cache-miss rates).
-PROVIDER_RATES: dict[str, dict[str, float]] = {
-    # DeepSeek V4 — cache-miss, on-peak rates ($/token).
-    # Both flash modes share the same per-token price; thinking just uses more output tokens.
-    "deepseek-v4-flash": {"input": 0.14e-6, "output": 0.28e-6},
-    "deepseek-v4-pro":   {"input": 0.50e-6, "output": 2.00e-6},
-}
-
-# Routing tiers — agent picks model+mode based on δ × appraised difficulty.
-# "thinking" = deepseek-v4-flash with extra_body={"thinking": {"type": "enabled"}}
-#              Same per-token price but more output tokens → effectively mid-tier cost.
-MODEL_TIERS: dict[str, str] = {
-    "deepseek-v4-flash":          "weak",
-    "deepseek-v4-flash-thinking": "main",   # flash + thinking mode
-    "deepseek-v4-pro":            "strong",
-}
-
-
-@dataclass
-class ModelConfig:
-    """What model to call and whether to enable thinking mode."""
-    model:    str  = "deepseek-v4-flash"
-    thinking: bool = False
-
-    @property
-    def tier_key(self) -> str:
-        if self.thinking:
-            return self.model + "-thinking"
-        return self.model
-
-
-# Default routing table by tier.
-#   weak   — appraisal triage + respond_fast (cheap, direct)
-#   main   — respond_slow + proact (flash in thinking mode = mid-tier capacity)
-#   strong — escalation only: low δ AND genuinely hard demand
-DEFAULT_ROUTING: dict[str, ModelConfig] = {
-    "weak":   ModelConfig(model="deepseek-v4-flash", thinking=False),
-    "main":   ModelConfig(model="deepseek-v4-flash", thinking=True),
-    "strong": ModelConfig(model="deepseek-v4-pro",   thinking=False),
-}
-
-
-def _get_openai_client():
-    """Return an OpenAI client pointed at DeepSeek. Fails explicitly if no key."""
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise ImportError("openai package required: pip install openai") from exc
-
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-    if not api_key:
-        raise EnvironmentError(
-            "DEEPSEEK_API_KEY not set. Export the variable or add it to .env."
-        )
-    return OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
-
-
-DEEPSEEK_MODEL = "deepseek-v4-flash"
-
-# Token budgets per tier — thinking-mode needs headroom for reasoning_content
-MAX_TOKENS_BY_TIER: dict[str, int] = {
-    "weak":   256,    # flash, no thinking, JSON structured
-    "main":   1500,   # flash + thinking — reasoning_content eats most tokens
-    "strong": 2000,   # pro, no thinking but long outputs
-}
-
-
-def call_llm(
-    system:     str,
-    user:       str,
-    cfg:        ModelConfig | None = None,
-    max_tokens: int | None = None,
-) -> tuple[str, LLMTelemetry]:
-    """Call LLM with optional thinking mode. Returns (content, LLMTelemetry).
-
-    cfg=None defaults to ModelConfig(deepseek-v4-flash, thinking=False).
-    Thinking mode uses extra_body={"thinking":{"type":"enabled"}} per DeepSeek docs;
-    temperature is ignored by the API in that mode.
-
-    IMPORTANT: DeepSeek thinking-mode spends most of its token budget on
-    reasoning_content (not visible in message.content). Setting max_tokens<1000
-    causes the model to exhaust tokens on reasoning and return empty or truncated
-    JSON in content — the root cause of parse_error. Use MAX_TOKENS_BY_TIER.
-    """
-    if cfg is None:
-        cfg = ModelConfig()
-    # Default budget from tier if not explicitly provided
-    if max_tokens is None:
-        tier = MODEL_TIERS.get(cfg.tier_key, "main")
-        max_tokens = MAX_TOKENS_BY_TIER.get(tier, 512)
-    client = _get_openai_client()
-
-    kwargs: dict = dict(
-        model=cfg.model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user",   "content": user},
-        ],
-        max_tokens=max_tokens,
-    )
-    if cfg.thinking:
-        # response_format is incompatible with DeepSeek thinking mode —
-        # the model embeds JSON in prose; _extract_json handles it.
-        kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
-    else:
-        kwargs["temperature"] = 0
-        kwargs["response_format"] = {"type": "json_object"}
-
-    t0 = time.perf_counter()
-    response = client.chat.completions.create(**kwargs)
-    latency_ms = int((time.perf_counter() - t0) * 1000)
-
-    content = response.choices[0].message.content or ""
-    usage   = response.usage
-    pt = usage.prompt_tokens     if usage else 0
-    ct = usage.completion_tokens if usage else 0
-    tt = usage.total_tokens      if usage else (pt + ct)
-
-    rates = PROVIDER_RATES.get(cfg.model, {"input": 0.0, "output": 0.0})
-    cost  = pt * rates["input"] + ct * rates["output"]
-
-    telemetry = LLMTelemetry(
-        prompt_tokens=pt,
-        completion_tokens=ct,
-        total_tokens=tt,
-        cost_usd=cost,
-        latency_ms=latency_ms,
-        context_chars=len(system) + len(user),
-        provider="deepseek",
-        model=cfg.tier_key,   # includes "-thinking" suffix so UI shows the mode
-        tier=MODEL_TIERS.get(cfg.tier_key, "main"),
-    )
-    return content, telemetry
 
 
 # ── User-tunable regulatory budgets ────────────────────────────────────────────
@@ -296,7 +139,7 @@ def _extract_json(raw: str) -> dict:
     return {}
 
 
-def _extract_json_with_retry(raw: str, original_user: str) -> dict:
+def _extract_json_with_retry(raw: str, original_user: str, backend: LLMBackend) -> dict:
     """Try _extract_json; if empty, do one non-thinking retry asking for bare JSON.
 
     Covers the case where thinking-mode returns prose with no extractable JSON,
@@ -314,7 +157,7 @@ def _extract_json_with_retry(raw: str, original_user: str) -> dict:
     retry_user = original_user
     retry_cfg = ModelConfig(model="deepseek-v4-flash", thinking=False)
     try:
-        retry_raw, _ = call_llm(retry_system, retry_user, cfg=retry_cfg, max_tokens=256)
+        retry_raw, _ = backend.call(retry_system, retry_user, cfg=retry_cfg, max_tokens=256)
         result = _extract_json(retry_raw)
         if result:
             return result
@@ -324,14 +167,12 @@ def _extract_json_with_retry(raw: str, original_user: str) -> dict:
     return {}
 
 
-def appraise_demand(topic: str, message: str) -> AppraisedTask:
-    """Agent appraises incoming demand difficulty using deepseek-v4-flash (no thinking).
+def appraise_demand(topic: str, message: str, backend: LLMBackend) -> AppraisedTask:
+    """Agent appraises incoming demand difficulty using a cheap LLM call.
 
     This is the agent's own perceptual act — not a world label.  The result
     modulates D(δ) before action selection, making demanding tasks feel harder
     regardless of the agent's current δ.
-
-    Uses max_tokens=256 (non-thinking flash with structured output).
     """
     system = (
         "You are an internal appraisal module. Rate the cognitive difficulty "
@@ -345,7 +186,7 @@ def appraise_demand(topic: str, message: str) -> AppraisedTask:
     telemetry = LLMTelemetry()      # default in case call fails
     d, kind, why = 0.5, "moderate", "appraisal error"
     try:
-        raw, telemetry = call_llm(system, user, cfg=cfg, max_tokens=256)
+        raw, telemetry = backend.call(system, user, cfg=cfg, max_tokens=256)
         data = _extract_json(raw)
         d    = max(0.0, min(1.0, float(data.get("d", 0.5))))
         kind = data.get("kind", "moderate")
@@ -623,6 +464,7 @@ def execute_action_llm(
     model_cfg: Optional[ModelConfig] = None,
     pressure_mode: bool = False,
     baseline_mode: bool = False,
+    backend: LLMBackend | None = None,
 ) -> tuple[Optional[dict], LLMTelemetry]:
     """Run the LLM call for an action that needs one. Returns (result_dict, telemetry).
 
@@ -653,10 +495,21 @@ def execute_action_llm(
 
     cfg = model_cfg or DEFAULT_ROUTING["main"]
     try:
-        # max_tokens from spec — already sized correctly per tier (see MAX_TOKENS_BY_TIER)
-        raw, telemetry = call_llm(system, user, cfg=cfg, max_tokens=spec.max_tokens)
-        result = _extract_json_with_retry(raw, user) or {"parse_error": True, "raw": raw[:120]}
+        raw, telemetry = (backend or _get_default_backend()).call(system, user, cfg=cfg, max_tokens=spec.max_tokens)
+        result = _extract_json_with_retry(raw, user, backend or _get_default_backend()) or {"parse_error": True, "raw": raw[:120]}
     except Exception as exc:
         result = {"error": str(exc)[:80]}
         telemetry = empty
     return result, telemetry
+
+
+_backend_cache: LLMBackend | None = None
+
+
+def _get_default_backend() -> LLMBackend:
+    """Lazy-initialized default backend (for backward compat with tests)."""
+    global _backend_cache
+    if _backend_cache is None:
+        from .llm import get_backend
+        _backend_cache = get_backend()
+    return _backend_cache

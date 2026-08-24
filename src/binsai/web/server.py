@@ -18,7 +18,7 @@ from ..world.world import World, WorldConfig
 
 logger = logging.getLogger(__name__)
 
-STATIC_DIR = Path(__file__).parent.parent.parent.parent.parent / "static"
+STATIC_DIR = Path(__file__).parent / "static"
 
 _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
 
@@ -65,8 +65,12 @@ def create_app(config: WorldConfig | None = None) -> FastAPI:
         loop = asyncio.get_event_loop()
         while True:
             if running:
-                frame = await loop.run_in_executor(None, world.step)
-                await broadcast(_frame_to_dict(frame))
+                try:
+                    frame = await loop.run_in_executor(None, world.step)
+                    await broadcast(_frame_to_dict(frame))
+                except Exception as exc:
+                    logger.error("simulation step failed: %s", exc, exc_info=True)
+                    await broadcast({"type": "error", "message": str(exc)[:120]})
                 await asyncio.sleep(1.0 / world.config.speed)
             else:
                 await asyncio.sleep(0.05)

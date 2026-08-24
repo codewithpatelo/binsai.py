@@ -37,30 +37,35 @@ Instead of only asking what an agent can do, Binsai helps decide **why, when, an
 
 ---
 
+## Research lineage
+
+Binsai is the 4th iteration of a research program that asks: *what makes agents act?*
+
+| Year | Work | Venue | What we learned |
+|---|---|---|---|
+| 2019 | [AopifyJS](https://github.com/codewithpatelo/aopifyjs) | Springer CCIS | FIPA-based declarative agents; roadmap already included "homeostatic motives" |
+| 2026 | Pro-Action Γ (n=6) | ICML 2026 LatinX in AI Workshop | Full multi-subsystem operator; feasibility proven with 6 drives in iterated prisoner's dilemma, but 6 drives = over-engineering |
+| 2026 | Pro-Action Γ Reduced (n=1) | NLP-School South America (poster) | Single-drive regulation in adversarial debate; emergent behavior, but regulation uncorrelated with collapse reduction → discovered the *satiety-signal problem* |
+| 2026 | Pro-Action Γ (n=2) | NeurIPS Workshop | Two drives with fuzzy criticality zones; identified the **redundancy argument**: if a scalar estimator exists, estimate-then-optimize beats regulation. Γ only makes sense where scalarization is impossible. |
+| 2026 | **Binsai.PY** | RSLA 2026 | Parameterizable simulation substrate; metabolic drive demo; **antagonistic tensions** scenario |
+
+### The framing shift: homeostasis is NOT competing with optimization
+
+The latest paper (LxAI 2026) found something uncomfortable but important: **when a scalar estimator of the state exists, estimating and optimizing dominates regulation.** This is not a defect of Γ — it's a structural fact. Regulation only makes sense where you *cannot* scalarize without choosing an arbitrary exchange rate between incommensurable objectives.
+
+This is where **agent operations** comes in: context budget, token cost, tool rate limits, latency, error rate, safety margin. These are **genuinely antagonistic** — you can't reduce "how many tokens is one less error worth?" to a single number without making an arbitrary choice. The goal is not to maximize a scalar reward but to **maintain multiple variables within viable ranges indefinitely.**
+
 ## Why Binsai exists
 
 ### The problem: motivation is usually external
 
-Modern agent frameworks make LLMs more capable by adding tools, memory, workflows, and communication protocols.
-
-But motivation is usually external: a graph, supervisor, or queue decides when the agent acts.
-
-Binsai adds an internal regulatory layer: drives, needs, set-points, deficits, social/computational budgets, and adaptive intervention policies.
+Modern agent frameworks make LLMs more capable by adding tools, memory, workflows, and communication protocols. But motivation is usually external: a graph, supervisor, or queue decides when the agent acts.
 
 ### The proposal: a bio-inspired regulatory substrate
 
-Binsai is a Python library for adding bio-inspired drives and regulatory self-state to LLM agents.
+Binsai adds an internal regulatory layer: drives, needs, set-points, deficits, and adaptive intervention policies. It draws from cognitive neuroscience, cybernetics (Stafford Beer), and systemic materialism (Bunge-Romero).
 
-It provides FIPA-inspired communication, async perception, explicit time/space context, regulatory drives, and adaptive intervention policies.
-
-We draw from cognitive neuroscience, cybernetics (Stafford Beer), and systemic materialism (Bunge-Romero) to build agents that:
-
-- Have **stratified needs** (from computational resources to purpose)
-- Regulate behavior through **homeostasis and allostasis**
-- Decide **when, how, and if** to act (regulated proactivity)
-- Are **auditable** (we know why they did what they did)
-
-Binsai does **not** replace frameworks like LangGraph, AutoGen, or OpenClaw. It gives them internal motivational dynamics.
+Binsai is **not** a competitor to LangGraph, AutoGen, or CrewAI. It is a regulatory substrate that gives them internal motivational dynamics — helping decide *why, when, and whether* an agent should act.
 
 ---
 
@@ -168,9 +173,10 @@ Each MVP ships with a visual demo using Phaser 3:
 
 ## Related Papers
 
-- **Driveplexity** (JAIIO 2025, under review): Endogenous activation in multi-agent LLM debate
-- **Pro-Action Γ** (in preparation): Multi-subsystem regulatory operator for affective agents
-- **AAH** (in preparation): Affective allostatic homeostasis for prosocial AI
+- **Pro-Action Γ (n=6)** — ICML 2026 LatinX in AI Workshop: Full multi-subsystem regulatory operator; feasibility in iterated prisoner's dilemma
+- **Pro-Action Γ Reduced (n=1)** — NLP-School South America 2026 (poster): Single-drive regulation; discovered the satiety-signal problem
+- **Pro-Action Γ (n=2)** — NeurIPS 2026 Workshop (under review): Two drives + fuzzy criticality zones; identified the redundancy argument
+- **AopifyJS** — Springer CCIS, 2019: FIPA-based declarative agent programming — the architectural precursor
 
 ---
 
@@ -215,10 +221,11 @@ Auditability: every decision leaves a trace of which drives conditioned it. Symb
 ## Lineage
 
 This project evolves from:
-- [AopifyJS](https://github.com/codewithpatelo/aopifyjs) (2019, FIPA/declarative agents in Node.js)
-- [Langpify](https://github.com/codewithpatelo/langpify) (Python SDK for neuro-symbolic agents)
-- [LangClaw](https://github.com/codewithpatelo/langclaw) (multi-agent orchestration)
-- **Driveplexity** and **Pro-Action Γ** (research papers)
+- [AopifyJS](https://github.com/codewithpatelo/aopifyjs) (2019, FIPA/declarative agents in Node.js) — Springer CCIS
+- **Pro-Action Γ (n=6)** — ICML 2026 LatinX in AI Workshop — full operator, feasibility
+- **Pro-Action Γ Reduced (n=1)** — NLP-School 2026 poster — satiety-signal problem
+- **Pro-Action Γ (n=2)** — NeurIPS 2026 Workshop — fuzzy zones + redundancy argument
+- **Binsai.PY** — RSLA 2026 — parameterizable simulation substrate
 
 ---
 
@@ -268,27 +275,73 @@ Copyright (C) 2026 Patricio Gerpe
 
 En lugar de preguntar solo qué puede hacer un agente, Binsai ayuda a decidir **por qué, cuándo y si debe actuar**.
 
-### Instalación
+**Versión actual**: 0.0.1.dev0 · **Estado**: MVP 1 "Agentes Hambrientos" ✅
+
+---
+
+## Linaje de investigación
+
+Binsai es la 4ta iteración de un programa de investigación que pregunta: *¿qué mueve a los agentes a actuar?*
+
+| Año | Trabajo | Venue | Qué aprendimos |
+|---|---|---|---|
+| 2019 | [AopifyJS](https://github.com/codewithpatelo/aopifyjs) | Springer CCIS | Agentes declarativos FIPA; el roadmap ya incluía "motivos homeostáticos" |
+| 2026 | Pro-Action Γ (n=6) | ICML 2026 LatinX in AI Workshop | Operador multi-subsistema completo; factibilidad con 6 drives en dilema del prisionero iterado, pero 6 drives = sobreingeniería |
+| 2026 | Pro-Action Γ Reducido (n=1) | NLP-School Sudamérica (poster) | Regulación mono-drive en debate adversarial; comportamiento emergente, pero la regulación no correlacionó con la reducción de colapso → descubrimos el *problema de señal de saciedad* |
+| 2026 | Pro-Action Γ (n=2) | NeurIPS Workshop | Dos drives con zonas fuzzy de criticidad; identificamos el **argumento de redundancia**: si existe un estimador escalar del estado, estimar-y-optimizar domina a la regulación. Γ solo tiene sentido donde la escalarización es imposible. |
+| 2026 | **Binsai.PY** | RSLA 2026 | Sustrato de simulación parametrizable; demo de drive metabólico; escenario de **tensiones antagónicas** |
+
+### El cambio de framing: la homeostasis NO compite con la optimización
+
+El último paper (Pro-Action Γ n=2, NeurIPS 2026) encontró algo incómodo pero importante: **cuando existe un estimador escalar del estado, estimar y optimizar domina a la regulación.** Esto no es un defecto de Γ — es un hecho estructural. La regulación solo tiene sentido donde *no se puede* escalarizar sin elegir un tipo de cambio arbitrario entre objetivos inconmensurables.
+
+Ahí entra la **operación de agentes**: presupuesto de contexto, costo por token, rate limits de herramientas, latencia, tasa de error, margen de seguridad. Son **genuinamente antagónicos** — no se puede reducir "¿cuántos tokens vale evitar un error?" a un solo número sin elegir arbitrariamente. El objetivo no es maximizar una recompensa escalar sino **mantener múltiples variables dentro de rangos viables indefinidamente.**
+
+---
+
+## ¿Por qué existe Binsai?
+
+### El problema: la motivación suele ser externa
+
+Los frameworks modernos hacen a los LLMs más capaces agregando herramientas, memoria, flujos de trabajo y protocolos. Pero la motivación suele ser externa: un grafo, supervisor o cola decide cuándo actúa el agente.
+
+### La propuesta: un sustrato regulatorio bio-inspirado
+
+Binsai agrega una capa regulatoria interna: drives, necesidades, set-points, déficits y políticas de intervención adaptativas. Se inspira en neurociencia cognitiva, cibernética (Stafford Beer) y materialismo sistémico (Bunge-Romero).
+
+Binsai **no** compite con LangGraph, AutoGen o CrewAI. Es un sustrato regulatorio que les da dinámicas motivacionales internas — ayudando a decidir *por qué, cuándo y si* un agente debe actuar.
+
+---
+
+## Instalación
 
 ```bash
 pip install binsai
 ```
 
-### Inicio rápido
+O con Poetry:
+
+```bash
+poetry add binsai
+```
+
+## Inicio rápido
 
 ```python
 from binsai import World, WorldConfig
 
+# Simulación determinista solo con la semilla
 config = WorldConfig(seed=42, dry_run_llm=True)
 world = World(config)
 
+# Ejecutar 10 ticks
 for _ in range(10):
     frame = world.step()
     for a in frame.agents:
         print(f"tick={frame.tick}  {a.name}: δ={a.delta}, zona={a.zone}, acción={a.action}")
 ```
 
-Esto crea 3 agentes (Alpha, Beta, Gamma) con λ heterogéneas. Gamma arranca sin regulación para comparación por ablación.
+Esto crea 3 agentes (Alpha, Beta, Gamma) con λ heterogéneas. Gamma arranca sin regulación para comparación por ablación. Cada tick: llegan demandas, los agentes evalúan y actúan, los drives evolucionan.
 
 ### MVP1: Qué funciona ahora
 
@@ -297,27 +350,145 @@ Este release es **MVP1 — Agente Hambriento**. Implementa la capa de drive meta
 - **Un drive activo**: `metabolic` — regula cuándo el agente duerme, actúa rápido, lento, difiere o está inactivo.
 - **Ciclo FIPA**: `INITIATED → ACTIVE → SUSPENDED → ACTIVE` con transiciones causales.
 - **Sueño/consolidación**: Cuando el déficit metabólico excede el umbral, el agente se suspende; despierta cuando se recupera Y la cola está vacía.
-- **Inyección de estado**: El estado regulatorio (δ, zona) se incrusta en los prompts del LLM.
+- **Inyección de estado**: El estado regulatorio (δ, zona) se incrusta en los prompts del LLM para que el modelo lea su propia "fisiología".
 - **Pre-check simbólico**: Un verificador de reglas mínimo controla acciones proactivas según zona y tamaño de cola.
 
-**Qué NO está en MVP1**: Los otros 9 drives canónicos no afectan el comportamiento. La memoria es nativa de trabajo limitada (sin adapters). La capa neuro-simbólica es un verificador de reglas, no DeLP/AHP/TOPSIS.
+**Qué NO está en MVP1**: Los otros 9 drives canónicos no afectan el comportamiento. La memoria es nativa de trabajo limitada (sin adapters para LangGraph/LlamaIndex/Mem0). La capa neuro-simbólica es un verificador de reglas, no DeLP/AHP/TOPSIS todavía.
 
-### ¿Por qué existe Binsai?
+---
 
-Los frameworks modernos hacen a los LLMs más capaces agregando herramientas, memoria, flujos de trabajo y protocolos. Pero la motivación suele ser externa: un grafo, supervisor o cola decide cuándo actúa el agente.
+## Qué hace diferente a Binsai
 
-Binsai agrega una capa regulatoria interna: drives, necesidades, set-points, déficits, presupuestos sociales/computacionales y políticas de intervención adaptativas. Inspiración funcional en neurofisiología, cibernética (Stafford Beer) y materialismo sistémico (Bunge-Romero).
+### Drives estratificados
 
-### Roadmap
+Desde 2019, el [roadmap de AopifyJS](https://github.com/codewithpatelo/aopifyjs) incluía:
+> "Homeostatic Motives system"
+
+Binsai implementa esto con fundamento filosófico: **10 drives canónicos** en 6 niveles ontológicos (Bunge-Romero):
+
+- **S1 Material**: `δ_metabolic` (tokens, energía, latencia) — **MVP 1**
+- **S3 Biológico**: `δ_safety`, `δ_epistemic`, `δ_coherence`, `δ_competence` — **MVP 2**
+- **S4 Técnico**: `δ_artifact_integrity` (Safe AI), `δ_niche_construction` (Engels/Lewontin)
+- **S5 Social**: `δ_relatedness`, `δ_autonomy`
+- **S6 Tecnológico**: `δ_meaning` (propósito)
+
+Cada drive tiene set-points, tasas de decaimiento configurables y **activación sigmoide difusa** (sin umbrales duros).
+
+### Arbitraje tri-proceso
+
+Inspirado en Stanovich (Tipo 1/2/3) y nuestro paper de Γ: el agente decide entre rutas rápido/lento/abstenerse/dormir basado en su estado regulatorio interno, no solo en el input.
+
+### Prompting regulado por estado
+
+El paper de Γ introduce **RSVI** (Regulatory State Verbalized Interoception): el estado regulatorio numérico se verbaliza en el prompt del LLM como contexto de decisión, sin prescribir acciones directamente. MVP1 incrusta el estado del drive (δ, membresías de zona) en el system prompt antes de cada llamada al LLM.
+
+### Memoria Lego
+
+El cerebro distingue memoria de trabajo, episódica, semántica y procedural. Binsai MVP1 provee memoria de trabajo nativa limitada (7 ítems) con consolidación basada en LLM durante el sueño.
+
+### Capa neuro-simbólica
+
+Un pre-commit simbólico mínimo controla acciones proactivas según zona del drive y tamaño de cola (MVP1). Futuros MVPs integrarán argumentación rebatible (DeLP), agregación multicriterio (AHP) y ranking (TOPSIS).
+
+---
+
+## Demos (pixel-art)
+
+Cada MVP incluye una demo visual con Phaser 3:
+
+| MVP | Demo | Qué muestra |
+|-----|------|-------------|
+| 1 | [Hungry Agents](examples/mvp1_hungry/) | `δ_metabolic` (S1 Bunge) + dummy human + ciclo FIPA + sigmoide difusa |
+| 2 | Curious Agent (próximamente) | Drives S3: `δ_safety`, `δ_epistemic`, `δ_coherence`, `δ_competence` |
+| 3 | Social Agent (próximamente) | Drives S5: `δ_relatedness`, `δ_autonomy` |
+| 4 | Reflective Agent (próximamente) | Árbitro tri-proceso (Γ) |
+| 5 | Operator Demos (próximamente) | Γ corriendo dentro de Binsai |
+| 6 | World Model + VSM (próximamente) | Grafo ontológico + recursión |
+
+---
+
+## Papers relacionados
+
+- **Pro-Action Γ (n=6)** — ICML 2026 LatinX in AI Workshop: Operador regulatorio multi-subsistema completo; factibilidad en dilema del prisionero iterado
+- **Pro-Action Γ Reducido (n=1)** — NLP-School Sudamérica 2026 (poster): Regulación mono-drive; descubrimiento del problema de señal de saciedad
+- **Pro-Action Γ (n=2)** — NeurIPS 2026 Workshop (under review): Dos drives + zonas fuzzy de criticidad; identificado el argumento de redundancia
+- **AopifyJS** — Springer CCIS, 2019: Programación declarativa de agentes basada en FIPA — el precursor arquitectónico
+
+---
+
+## Casos de uso
+
+### Para desarrolladores de agentes
+
+Integrá Binsai como capa regulatoria sobre tu framework favorito. Control granular del comportamiento, ablación sistemática, depuración de motivaciones.
+
+```python
+from binsai import BinsaiAgent, Drives, World, WorldConfig
+
+agent = BinsaiAgent(name="Assistant", drives=Drives.stratified())
+# El drive metabólico regula cuándo actúa, duerme o difiere
+```
+
+### Para investigación académica
+
+Ciencia reproducible con papers que incluyen código de Binsai. Cada técnica de prompting está versionada y registrada.
+
+### Para industria (regulado, salud, atención al cliente)
+
+Auditabilidad: cada decisión deja traza de qué drives la condicionaron. Pre-checks simbólicos proveen justificación ligera para dominios críticos.
+
+---
+
+## Comparación con otros frameworks
+
+| Framework | Foco | ¿Binsai lo complementa? |
+|-----------|------|------------------------|
+| LangGraph | Grafos de control de flujo | Sí, como capa regulatoria encima |
+| AutoGen | Conversación multi-agente | Sí, como estado interno de cada agente |
+| CrewAI | Delegación de tareas | Sí, como motivación de cada miembro |
+| OpenClaw | Razonamiento simbólico | Sí, integramos su capa simbólica |
+
+**No competimos**: Binsai es el *sustrato*, ellos son el *framework*.
+
+---
+
+## Linaje
+
+Este proyecto evoluciona de:
+- [AopifyJS](https://github.com/codewithpatelo/aopifyjs) (2019, agentes declarativos FIPA en Node.js) — Springer CCIS
+- **Pro-Action Γ (n=6)** — ICML 2026 LatinX in AI Workshop — operador completo, factibilidad
+- **Pro-Action Γ Reducido (n=1)** — NLP-School 2026 poster — problema de señal de saciedad
+- **Pro-Action Γ (n=2)** — NeurIPS 2026 Workshop — zonas fuzzy + argumento de redundancia
+- **Binsai.PY** — RSLA 2026 — sustrato de simulación parametrizable
+
+---
+
+## Contribuir
+
+Ver [CONTRIBUTING.md](CONTRIBUTING.md)
+
+---
+
+## Roadmap
+
+Binsai se publica incrementalmente en seis MVPs, cada uno agregando un nivel ontológico de Bunge:
 
 - [x] **MVP 1 — Agentes Hambrientos**: `δ_metabolic` (S1), ciclo FIPA, activación sigmoide difusa, sueño/consolidación, modo ablación
-- [ ] **MVP 2 — Agente Curioso**: drives S3, memoria episódica y semántica
-- [ ] **MVP 3 — Agente Social**: drives S5, actos comunicativos FIPA, multiagente
-- [ ] **MVP 4 — Agente Reflexivo**: árbitro tri-proceso (Γ), metacognición
-- [ ] **MVP 5 — Demos de Operadores**: Driveplexity + Γ corriendo dentro de Binsai
-- [ ] **MVP 6 — Modelo de Mundo + VSM**: grafo ontológico, agentes VSM recursivos, capa neuro-simbólica
+- [ ] **MVP 2 — Agente Curioso**: `δ_safety`, `δ_epistemic`, `δ_coherence`, `δ_competence` (S3), memoria episódica + semántica
+- [ ] **MVP 3 — Agente Social**: `δ_relatedness`, `δ_autonomy` (S5), actos comunicativos FIPA, EventBus multi-agente
+- [ ] **MVP 4 — Agente Reflexivo**: Árbitro tri-proceso (Γ), demoras hormonales SAM/HPA, metacognición
+- [ ] **MVP 5 — Demos de Operadores**: Γ corriendo dentro de Binsai, `δ_niche_construction`, `δ_artifact_integrity` (S4), `δ_meaning` (S6)
+- [ ] **MVP 6 — Modelo de Mundo + VSM**: Grafo ontológico (E, R, M, V, C), agentes VSM recursivos, wrappers neuro-simbólicos (DeLP/AAF/AHP/TOPSIS)
 - [ ] **v0.1.0**: release PyPI, DOI Zenodo, documentación completa
 
-### Licencia
+---
 
-GPL-3.0 — ver [LICENSE](LICENSE). Copyright (C) 2026 Patricio Gerpe.
+## Licencia
+
+GNU General Public License v3.0 — ver [LICENSE](LICENSE)
+
+Copyright (C) 2026 Patricio Gerpe
+
+---
+
+> *"La próxima generación de agentes inteligentes no emergerá solamente de escalar modelos predictivos, sino de acoplar modelos generativos con sustratos regulatorios capaces de administrar necesidades, recursos, memoria, coherencia y relaciones sociales bajo restricciones termodinámicas."*

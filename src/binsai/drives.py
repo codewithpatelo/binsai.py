@@ -16,7 +16,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Callable, Optional
+
+
+@dataclass
+class ZoneSpec:
+    """A named fuzzy zone with center and width (Gaussian σ)."""
+    name:   str
+    center: float
+    width:  float = 0.12
 
 
 class Stratum(Enum):
@@ -60,6 +68,11 @@ class Drive:
     satiation_rate: float = 0.10
     subdrives:      list["Drive"] = field(default_factory=list)
     description:    str   = ""
+    drift:          str   = "constant"  # "constant" | "linear" | "exponential" | "circadian" | callable
+    drift_period:   int   = 120        # circadian period in ticks
+    drift_k:        float = 1.0        # exponential drift coefficient
+    satiation:      str   = "linear"   # "linear" | "saturating" | "sigmoid" | callable
+    zones:          Optional[list[ZoneSpec]] = None  # None = default 5 zones
 
     # Internal: not part of public API
     _history: list[tuple[int, float]] = field(default_factory=list, repr=False)
@@ -71,6 +84,42 @@ class Drive:
             raise ValueError(f"Drive value must be in [0,1], got {self.value}")
         if not 0.0 <= self.set_point <= 1.0:
             raise ValueError(f"Set point must be in [0,1], got {self.set_point}")
+        # Resolve drift to callable if it's a named policy
+        if isinstance(self.drift, str):
+            self._drift_fn = self._resolve_drift(self.drift)
+        else:
+            self._drift_fn = self.drift
+        # Resolve satiation to callable if it's a named policy
+        if isinstance(self.satiation, str):
+            self._satiation_fn = self._resolve_satiation(self.satiation)
+        else:
+            self._satiation_fn = self.satiation
+        # Default zones if none provided
+        if self.zones is None:
+            self.zones = [
+                ZoneSpec("oversated", 0.05, 0.12),
+                ZoneSpec("sated",     0.15, 0.12),
+                ZoneSpec("nominal",   0.30, 0.12),
+                ZoneSpec("loaded",    0.55, 0.12),
+                ZoneSpec("critical",  0.80, 0.12),
+            ]
+        self._last_zone = self.get_zone()
+
+    @staticmethod
+    def _resolve_drift(name: str):
+        import math
+        if name == "constant":
+            return lambda v, s, t, lam, k: lam
+        elif name == "linear":
+            return lambda v, s, t, lam, k: lam * (1.0 + max(0.0, (v - s) / max(0.01, s)))
+        elif name == "exponential":
+            return lambda v, s, t, lam, k: lam * math.exp(k * max(0.0, v - s))
+        elif name == "circadian":
+            # oscillatory: peaks during "day", trough during "night"
+            period = 120  # default, overridden by drift_period
+            return lambda v, s, t, lam, k: lam * (1.0 + math.sin(2 * math.pi * t / period)) / 2.0
+        else:
+            raise ValueError(f"Unknown drift policy: {name!r}. Use 'constant', 'linear', 'exponential', 'circadian', or a callable.")
 
     @property
     def deviation(self) -> float:
@@ -82,24 +131,52 @@ class Drive:
         """Absolute urgency: 0 at set-point, 1 at maximum deviation."""
         return abs(self.deviation)
 
-    def update(self, tick: int = 0) -> None:
-        """Apply autonomous terms: elastic return to ε + basal drift λ.
+    def update(self, tick: int = 0, coupling: float = 0.0) -> list[tuple[str, str]] | None:
+        """Apply autonomous terms: elastic return to ε + drift + coupling.
 
-            x_{t+1} = x_t − κ·(x_t − ε) + λ
+            x_{t+1} = x_t − κ·(x_t − ε) + drift(value, set_point, tick) + W·φ(x_{t-τ})
 
-        Without action feedback, the drive returns toward set-point at rate κ
-        and drifts upward at λ (basal metabolic cost). Equilibrium under no
-        action: x* = ε + λ/κ  (≈0.40 with default κ=0.05, λ=0.005).
+        Returns a list of zone transition events if the dominant zone changed,
+        otherwise None. Each event is (event_type, zone_name) e.g.
+        ("zone.enter", "critical"), ("zone.exit", "nominal").
+        The caller (agent) is responsible for emitting these as events.
         """
+        old_zone = self._last_zone
         elastic = -self.kappa * (self.value - self.set_point)
-        self.value = max(0.0, min(1.0, self.value + elastic + self.lambda_rate))
+        drift_amount = self._drift_fn(self.value, self.set_point, tick, self.lambda_rate, self.drift_k)
+        self.value = max(0.0, min(1.0, self.value + elastic + drift_amount + coupling))
         self._history.append((tick, self.value))
         if len(self._history) > 500:
             self._history = self._history[-500:]
+        new_zone = self.get_zone()
+        self._last_zone = new_zone
+        if old_zone and old_zone != new_zone:
+            return [("zone.exit", old_zone), ("zone.enter", new_zone)]
+        return None
+
+    @staticmethod
+    def _resolve_satiation(name: str):
+        import math
+        if name == "linear":
+            return lambda v, a, r: a * r
+        elif name == "saturating":
+            # diminishing returns: large amounts give less per-unit benefit
+            return lambda v, a, r: r * (1.0 - math.exp(-a))
+        elif name == "sigmoid":
+            # steepest near set-point, gentle at extremes
+            return lambda v, a, r: r * a / (1.0 + abs(v - 0.30) * 5.0)
+        else:
+            raise ValueError(f"Unknown satiation policy: {name!r}. Use 'linear', 'saturating', 'sigmoid', or a callable.")
 
     def satiate(self, amount: float) -> None:
-        """Lower δ by amount * satiation_rate (resource gain / task completion)."""
-        self.value = max(0.0, self.value - amount * self.satiation_rate)
+        """Lower δ using the configured satiation function g.
+
+        Linear (default): value -= amount * satiation_rate
+        Saturating: diminishing returns for large amounts
+        Sigmoid: strongest effect near set-point
+        """
+        reduction = self._satiation_fn(self.value, amount, self.satiation_rate)
+        self.value = max(0.0, self.value - reduction)
 
     def deplete(self, amount: float) -> None:
         """Raise δ by amount (resource consumed: tokens spent, error incurred)."""
@@ -107,14 +184,15 @@ class Drive:
 
     def get_zone(self) -> str:
         """Dominant zone name (highest Gaussian membership)."""
-        from .fuzzy import zone_memberships as _zm
-        memberships = _zm(self.value)
+        memberships = self.zone_memberships()
         return max(memberships, key=memberships.__getitem__)
 
     def zone_memberships(self) -> dict[str, float]:
-        """Gaussian memberships over 5 zones. Values sum to 1.0."""
-        from .fuzzy import zone_memberships as _zm
-        return _zm(self.value)
+        """Gaussian memberships over the drive's configured zones. Values sum to 1.0."""
+        import math
+        raw = {z.name: math.exp(-0.5 * ((self.value - z.center) / z.width) ** 2) for z in (self.zones or [])}
+        total = sum(raw.values()) or 1.0
+        return {z: v / total for z, v in raw.items()}
 
     @property
     def aggregated_value(self) -> float:
@@ -144,9 +222,16 @@ class Drives:
 
     def __init__(self, drives: Optional[list[Drive]] = None) -> None:
         self._drives: dict[str, Drive] = {}
+        self._coupling: dict[str, dict[str, float]] = {}  # W: {src: {tgt: weight}}
+        self._coupling_tau: int = 0  # delay in ticks for φ(x_{t-τ})
         if drives:
             for d in drives:
                 self._drives[d.name] = d
+
+    def set_coupling(self, matrix: dict[str, dict[str, float]], tau: int = 0) -> None:
+        """Set coupling matrix W where W[src][tgt] = weight, with optional delay tau."""
+        self._coupling = matrix
+        self._coupling_tau = tau
 
     @classmethod
     def stratified(cls, subset: Optional[list[str]] = None) -> "Drives":
@@ -278,10 +363,35 @@ class Drives:
     def __iter__(self):
         return iter(self._drives.values())
 
-    def update_all(self, tick: int = 0) -> None:
-        """Apply one tick of basal decay to all drives."""
-        for drive in self._drives.values():
-            drive.update(tick=tick)
+    def update_all(self, tick: int = 0) -> dict[str, list[tuple[str, str]]]:
+        """Apply one tick of basal decay to all drives. Returns zone transitions per drive."""
+        transitions: dict[str, list[tuple[str, str]]] = {}
+        for name, drive in self._drives.items():
+            coupling_term = self._compute_coupling(name, tick)
+            evts = drive.update(tick=tick, coupling=coupling_term)
+            if evts:
+                transitions[name] = evts
+        return transitions
+
+    def _compute_coupling(self, target_name: str, tick: int) -> float:
+        """Compute Σ_j W_{j→target} · φ(x_j(t−τ)) for the coupling term."""
+        total = 0.0
+        for src_name, weights in self._coupling.items():
+            w = weights.get(target_name, 0.0)
+            if w == 0.0:
+                continue
+            src_drive = self._drives.get(src_name)
+            if src_drive is None:
+                continue
+            # Use delayed value if tau > 0 and history available
+            if self._coupling_tau > 0 and len(src_drive._history) > self._coupling_tau:
+                x_delayed = src_drive._history[-self._coupling_tau - 1][1]
+            else:
+                x_delayed = src_drive.value
+            # φ = sigmoid-squared (from AAH-A2 / Driveplexity)
+            phi = (x_delayed / (1.0 + abs(x_delayed))) ** 2
+            total += w * phi
+        return total
 
     def to_dict(self) -> dict[str, dict]:
         """Export drive states for prompts / serialization."""

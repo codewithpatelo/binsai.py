@@ -102,6 +102,7 @@ def compute_action_distribution(
     temperature:  float = 1.0,
     demand_difficulty: float = 0.0,
     pending_labels: int = 0,
+    action_set:   Any  = None,
 ) -> dict[str, float]:
     """AAH-A2 multinomial logistic over candidate actions.
 
@@ -115,20 +116,26 @@ def compute_action_distribution(
                            δ were higher by this much (anticipatory regulation).
         pending_labels:    number of planned task labels waiting in backlog.
                            Boosts proact probability when > 0 and no demand.
+        action_set:        Optional ActionSet; if None, uses module-level defaults.
     """
-    actions = ACTIONS_WITH_DEMAND if has_demand else ACTIONS_NO_DEMAND
+    if action_set is not None:
+        params = action_set.to_action_params()
+        specs_with = action_set.with_demand()
+        specs_without = action_set.without_demand()
+        actions = [s.name for s in (specs_with if has_demand else specs_without)]
+    else:
+        params = ACTION_PARAMS
+        actions = ACTIONS_WITH_DEMAND if has_demand else ACTIONS_NO_DEMAND
 
     if ablation_off:
-        # Sleep is a regulatory behavior — excluded when regulation is off.
-        # Unregulated agent processes freely without resource management.
         ablation_actions = [a for a in actions if a != "sleep"]
-        p = 1.0 / len(ablation_actions)
+        p = 1.0 / max(1, len(ablation_actions))
         return {a: p for a in ablation_actions}
 
     # Anticipatory: heavy demand shifts perceived intensity upward
     D = drive_intensity(delta, set_point) + 0.30 * demand_difficulty
 
-    logits = [ACTION_PARAMS[a][0] * D + ACTION_PARAMS[a][1] for a in actions]
+    logits = [params[a][0] * D + params[a][1] for a in actions]
 
     # Proactive boost: if planned work exists but no current demand, prefer proact
     if not has_demand and pending_labels > 0 and "proact" in actions:
