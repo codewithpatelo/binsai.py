@@ -209,7 +209,8 @@ class BinsaiAgent:
           3. Emit tick summary
         """
         self._current_tick = t
-        drive = self.drives.get("metabolic")
+        # Use the first available drive as the primary regulatory drive
+        drive = self.drives.get("metabolic") or next(iter(self.drives), None)
 
         # 1. Basal decay only during ACTIVE — sleep is restorative, no metabolic burn
         # Ablation agents have no drive regulation, so no decay (flat line)
@@ -325,8 +326,10 @@ class BinsaiAgent:
 
         # ── Regulated branch ──
         has_demand = len(self.pending_demands) > 0
-        delta      = drive.value if drive else 0.30
-        set_point  = drive.set_point if drive else 0.30
+        # Use first available drive if the primary isn't found
+        primary = drive or next(iter(self.drives), None)
+        delta      = primary.value if primary else 0.30
+        set_point  = primary.set_point if primary else 0.30
 
         # Agent appraises next demand difficulty (LLM flash call, no thinking).
         # Cost is small but real — the drive pays for thinking before acting.

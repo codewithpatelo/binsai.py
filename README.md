@@ -33,7 +33,7 @@
 
 Instead of only asking what an agent can do, Binsai helps decide **why, when, and whether it should act**.
 
-**Current version**: 0.1.0 · **Status**: MVP 1 "Hungry Agents" ✅ — [See demo](examples/mvp1_hungry/)
+**Current version**: 0.1.1 · **Status**: MVP 1 "Hungry Agents" ✅ — [See demo](examples/mvp1_hungry/)
 
 ---
 
@@ -248,7 +248,7 @@ This release is **MVP1 — Hungry Agent**. It implements the metabolic drive lay
 Since 2019, the [AopifyJS roadmap](https://github.com/codewithpatelo/aopifyjs) included:
 > "Homeostatic Motives system"
 
-Binsai now implements this with philosophical grounding: **10 canonical drives** across 6 ontological levels (Bunge-Romero), activated per-domain — not all at once, avoiding the n=6 over-engineering trap:
+Binsai ships with **10 canonical drives** as importable presets across 6 ontological levels (Bunge-Romero). Use them as-is or create your own — they're defaults, not constraints:
 
 - **S1 Material**: `δ_metabolic` (tokens, energy, latency) — **MVP 1**
 - **S3 Biological**: `δ_safety`, `δ_epistemic`, `δ_coherence`, `δ_competence` — **MVP 2**
@@ -401,7 +401,7 @@ Copyright (C) 2026 Patricio Gerpe
 
 En lugar de preguntar solo qué puede hacer un agente, Binsai ayuda a decidir **por qué, cuándo y si debe actuar**.
 
-**Versión actual**: 0.1.0 · **Estado**: MVP 1 "Agentes Hambrientos" ✅
+**Versión actual**: 0.1.1 · **Estado**: MVP 1 "Agentes Hambrientos" ✅
 
 ---
 
@@ -618,7 +618,7 @@ Este release es **MVP1 — Agente Hambriento**. Implementa la capa de drive meta
 Desde 2019, el [roadmap de AopifyJS](https://github.com/codewithpatelo/aopifyjs) incluía:
 > "Homeostatic Motives system"
 
-Binsai implementa esto con fundamento filosófico: **10 drives canónicos** en 6 niveles ontológicos (Bunge-Romero), activados por dominio — no todos a la vez, evitando la trampa de sobreingeniería del n=6:
+Binsai incluye **10 drives canónicos** como presets importables en 6 niveles ontológicos (Bunge-Romero). Usalos tal cual o creá los tuyos — son defaults, no restricciones:
 
 - **S1 Material**: `δ_metabolic` (tokens, energía, latencia) — **MVP 1**
 - **S3 Biológico**: `δ_safety`, `δ_epistemic`, `δ_coherence`, `δ_competence` — **MVP 2**

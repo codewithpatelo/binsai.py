@@ -23,8 +23,9 @@
 # ---
 # ## Scenario 1: Hunger / Fridge (no LLM)
 #
-# A single agent with a `hunger` drive. When hunger rises, it goes to the fridge and eats.
-# This is the Γ operator in its simplest form — no LLM, just a drive and an action.
+# A single agent with a `hunger` drive. When hunger rises above set-point (deficit),
+# it goes to the fridge and eats. When satiated, it idles. The Γ operator in its
+# simplest form — no LLM, just a drive, an action, and a homeostatic loop.
 
 # %%
 from binsai import BinsaiAgent, Drives, Drive, Stratum
@@ -48,7 +49,8 @@ actions = ActionSet([
         name="go_to_fridge", requires_demand=False,
         delta_cost=0.0, ticks=1, max_tokens=0,
         beta=-8.0, bias=-1.0,
-        handler=_handler_satiate("hunger", amount=0.8, action_name="go_to_fridge"),
+        beta=+8.0, bias=-1.5,
+        handler=_handler_satiate("hunger", amount=0.8, action_name="go_to_fridge", only_when_deficit=True),
     ),
     ActionSpec(
         name="idle", requires_demand=False,
@@ -80,6 +82,12 @@ for tick in range(40):
     action = agent.last_action or "idle"
     marker = " ← eats!" if action == "go_to_fridge" else ""
     print(f"  {tick:2d} |   {delta:.3f}  | {zone:10s} | {action:13s}{marker}")
+
+print()
+print("What's happening: the person starts hungry (high_deficit, δ=0.60),")
+print("goes to the fridge, eats until near equilibrium, then idles while")
+print("hunger slowly drifts back up. This is the classic homeostatic sawtooth —")
+print("the same pattern that regulates body temperature, blood sugar, and sleep.")
 
 # %%
 # Quick plot of the hunger trajectory
