@@ -60,7 +60,7 @@ class Drive:
         description:    Human-readable explanation
     """
     name:           str
-    stratum:        Stratum
+    stratum:        Optional[Stratum] = None  # descriptive taxonomy, does not affect simulation
     value:          float = 0.30
     set_point:      float = 0.30
     kappa:          float = 0.05

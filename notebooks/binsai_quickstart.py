@@ -30,14 +30,12 @@
 # The paradigm: `agent.on("drive.hunger.<zone>", handler)`
 
 # %%
-from binsai import BinsaiAgent, Drives, Drive, Stratum
+from binsai import BinsaiAgent, Drives, Drive
 
 # 1. Create a hunger drive — starts hungry (δ = 0.60)
 hunger = Drive(
-    name="hunger", stratum=Stratum.BIOLOGICAL,
-    value=0.60, set_point=0.30,
-    kappa=0.02, lambda_rate=0.008,
-    satiation_rate=0.30,
+    name="hunger", value=0.60, set_point=0.30,
+    kappa=0.02, lambda_rate=0.008, satiation_rate=0.30,
 )
 
 agent = BinsaiAgent(name="Sim", drives=Drives([hunger]), dry_run_llm=True)

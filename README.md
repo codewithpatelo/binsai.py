@@ -111,13 +111,12 @@ A person gets hungry over time. When hunger rises, they go to the fridge and eat
 No LLM, no complex setup — just a drive, an action, and a homeostatic loop.
 
 ```python
-from binsai import BinsaiAgent, Drives, Drive, Stratum
+from binsai import BinsaiAgent, Drives, Drive
 from binsai.action_registry import ActionSet, ActionSpec, _handler_satiate
 import random
 
 # A hunger drive: starts at 0.60 (hungry), set-point at 0.30 (satisfied)
-hunger = Drive(name="hunger", stratum=Stratum.BIOLOGICAL,
-               value=0.60, set_point=0.30,
+hunger = Drive(name="hunger", value=0.60, set_point=0.30,
                kappa=0.02, lambda_rate=0.008)
 
 # Two actions: go to the fridge (satiates hunger) or idle
@@ -178,13 +177,11 @@ window but drops pending work. Neither extreme strategy works — only the
 homeostatic middle ground keeps both variables in viable ranges.
 
 ```python
-from binsai import Drive, Stratum
+from binsai import Drive
 import random
 
-ctx = Drive(name="context_fill", stratum=Stratum.TECHNICAL,
-            value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.005)
-bl  = Drive(name="task_backlog", stratum=Stratum.TECHNICAL,
-            value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.004)
+ctx = Drive(name="context_fill", value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.005)
+bl  = Drive(name="task_backlog", value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.004)
 
 ctx_traj, bl_traj = [], []
 for tick in range(300):
@@ -480,13 +477,12 @@ y come. Sin LLM, sin configuración compleja — solo un drive, una acción y un
 lazo homeostático.
 
 ```python
-from binsai import BinsaiAgent, Drives, Drive, Stratum
+from binsai import BinsaiAgent, Drives, Drive
 from binsai.action_registry import ActionSet, ActionSpec, _handler_satiate
 import random
 
 # Un drive de hambre: arranca en 0.60 (hambriento), set-point en 0.30 (saciado)
-hambre = Drive(name="hambre", stratum=Stratum.BIOLOGICAL,
-               value=0.60, set_point=0.30,
+hambre = Drive(name="hambre", value=0.60, set_point=0.30,
                kappa=0.02, lambda_rate=0.008)
 
 # Dos acciones: ir a la heladera (sacia el hambre) o no hacer nada
@@ -548,13 +544,11 @@ la ventana pero descarta trabajo pendiente. Ninguna estrategia extrema funciona
 — solo el punto medio homeostático mantiene ambas variables en rango viable.
 
 ```python
-from binsai import Drive, Stratum
+from binsai import Drive
 import random
 
-ctx = Drive(name="ventana_contexto", stratum=Stratum.TECHNICAL,
-            value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.005)
-bl  = Drive(name="tareas_pendientes", stratum=Stratum.TECHNICAL,
-            value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.004)
+ctx = Drive(name="ventana_contexto", value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.005)
+bl  = Drive(name="tareas_pendientes", value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.004)
 
 ctx_traj, bl_traj = [], []
 for tick in range(300):
