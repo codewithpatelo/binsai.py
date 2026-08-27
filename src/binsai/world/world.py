@@ -252,7 +252,7 @@ class World:
                 buffered=len(a.mailbox.buffered),
                 action=(
                     "sleep" if a.status == "suspended"
-                    else (a.current_action.kind.value if a.current_action else "idle")
+                    else (a.last_action or "idle")
                 ),
                 position={"x": a.position.x, "y": a.position.y},
                 last_model=telem.model if telem else None,

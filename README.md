@@ -101,7 +101,7 @@ This creates 3 agents (Alpha, Beta, Gamma) with heterogeneous λ rates. Gamma st
 
 Full demo: [`examples/mvp1_hungry/`](examples/mvp1_hungry/)
 
-## Usage — four examples, from zero to plots
+## Usage — three examples, from zero to plots
 
 Each example is self-contained and runs in seconds. Copy-paste into a Python file or notebook.
 
@@ -144,29 +144,48 @@ for tick in range(40):
 
 Output shows the classic homeostatic sawtooth: hunger drifts up → fridge → drops → drifts up → ...
 
-### 2. The busy office — three agents under task pressure
+### 2. Socialization — a relatedness drive that re-engages
 
-Three accountants (Alpha, Beta, Gamma) receive tasks from a boss. Alpha and Beta
-regulate their metabolic budget — they sleep when overloaded and conserve tokens.
-Gamma has no regulation (ablation control). Over time, the regulated agents spend
-fewer tokens while maintaining quality.
+An agent has a `relatedness` drive. When it decays (the agent feels socially
+disconnected), the deficit triggers proactive re-initiation of contact — even
+without an incoming message.
 
 ```python
-from binsai import World, WorldConfig
+import os
+# os.environ["DEEPSEEK_API_KEY"] = "sk-..."
 
-# dry_run_llm=True means no API key needed — runs offline with synthetic LLM
-world = World(WorldConfig(seed=42, dry_run_llm=True))
+from binsai import World, WorldConfig, AgentConfig
+from binsai.action_registry import ActionSet, ActionSpec, _handler_llm, _handler_noop
 
-# Run 200 ticks, collect telemetry
-log = world.run(200)
+def _social_llm(action_name, satiate_amount=0.5):
+    def handler(agent, drive, tick, demand, difficulty):
+        r = agent.drives.get("relatedness")
+        if r:
+            r.satiate(satiate_amount)
+        return "llm"
+    return handler
+
+social_actions = ActionSet([
+    ActionSpec(name="reply", requires_demand=True, delta_cost=0.002, ticks=1,
+               max_tokens=256, beta=-0.5, bias=+1.6, handler=_social_llm("reply")),
+    ActionSpec(name="initiate_contact", requires_demand=False, delta_cost=0.003,
+               ticks=1, max_tokens=256, beta=+6.0, bias=-1.0,
+               handler=_social_llm("initiate_contact")),
+    ActionSpec(name="idle", requires_demand=False, handler=_handler_noop),
+])
+
+config = WorldConfig(seed=42, dry_run_llm=("DEEPSEEK_API_KEY" not in os.environ),
+    agents=[AgentConfig(name="HomeoBot", drive_names=["relatedness"],
+                        drive_configs=[{"name": "relatedness", "lambda_rate": 0.010,
+                                        "set_point": 0.30, "satiation_rate": 0.30}],
+                        temperature=1.0)])
+w = World(config)
+for a in w.agents:
+    a.action_set = social_actions
+
+log = w.run(60)
 df = log.to_dataframe()
-
-# Compare regulated vs unregulated
-last = df.sort_values("tick").groupby("agent").last()
-print(last[["session_tokens", "session_cost_usd", "session_deferred"]])
-
-# Export for analysis
-log.save_jsonl("office_simulation.jsonl")
+print(df[df["agent"] == "HomeoBot"]["action"].value_counts())
 ```
 
 ### 3. The indecisive operator — antagonistic tensions
@@ -201,26 +220,7 @@ print(f"Task backlog range:  {min(bl_traj):.3f}–{max(bl_traj):.3f}")
 # Both stay within ~0.25–0.35 — tightly around set-point, without scalarizing
 ```
 
-### 4. The data scientist — run, export, plot
-
-```python
-from binsai import World, WorldConfig
-
-world = World(WorldConfig(seed=42, dry_run_llm=True))
-log = world.run(300)
-
-# Export
-log.save_jsonl("results.jsonl")
-log.save_csv("results.csv")
-df = log.to_dataframe()
-
-# Plot (requires matplotlib — pip install binsai[analysis])
-from binsai.report import plot_trajectories, plot_kpi_comparison
-plot_trajectories(log)
-plot_kpi_comparison(log)
-```
-
-All four examples are also available as a [Colab notebook](notebooks/binsai_quickstart.ipynb).
+All three examples are also available as a [Colab notebook](notebooks/binsai_quickstart.ipynb).
 
 ---
 
@@ -330,12 +330,12 @@ Auditability: every decision leaves a trace of which drives conditioned it. Symb
 
 ## Comparison with other frameworks
 
-| Framework | Focus | Does Binsai complement it? |
-|-----------|-------|---------------------------|
-| LangGraph | Control flow graphs | Yes, as a regulatory layer on top |
-| AutoGen | Multi-agent conversation | Yes, as internal state for each agent |
-| CrewAI | Task delegation | Yes, as motivation for each crew member |
-| OpenClaw | Symbolic reasoning | Yes, we integrate its symbolic layer |
+| Framework | Focus | What Binsai adds on top |
+|-----------|-------|------------------------|
+| LangGraph | Control-flow graphs / orchestration | Drives that decide *when* a node or agent should fire — not just the graph topology |
+| AutoGen | Multi-agent conversation | Internal state per agent: each agent gets drives that gate when it speaks or acts |
+| CrewAI | Role-based task delegation | Motivational state per crew member: drives decide when a role acts, defers, or rests |
+| OpenClaw | Personal AI assistant / multi-channel gateway | Internal drives that regulate when the assistant acts, defers, or conserves resources across channels |
 
 **We don't compete**: Binsai is the *substrate*, they are the *framework*.
 
@@ -466,7 +466,7 @@ for _ in range(10):
 
 Esto crea 3 agentes (Alpha, Beta, Gamma) con λ heterogéneas. Gamma arranca sin regulación para comparación por ablación. Cada tick: llegan demandas, los agentes evalúan y actúan, los drives evolucionan.
 
-## Uso — cuatro ejemplos, de cero a gráficos
+## Uso — tres ejemplos, de cero a gráficos
 
 Cada ejemplo es autocontenido y corre en segundos. Copiá y pegá en un archivo Python o notebook.
 
@@ -511,29 +511,48 @@ for tick in range(40):
 La salida muestra el clásico diente de sierra homeostático: el hambre sube →
 heladera → baja → sube → ...
 
-### 2. La oficina ocupada — tres agentes bajo presión de tareas
+### 2. Socialización — un drive de relatedness que re-engagea
 
-Tres contadores (Alpha, Beta, Gamma) reciben tareas de un jefe. Alpha y Beta
-regulan su presupuesto metabólico — duermen cuando están sobrecargados y conservan
-tokens. Gamma no tiene regulación (control por ablación). Con el tiempo, los
-agentes regulados gastan menos tokens manteniendo la calidad.
+Un agente tiene un drive `relatedness`. Cuando decae (el agente se siente
+socialmente desconectado), el déficit dispara la re-iniciación proactiva de
+contacto — incluso sin un mensaje entrante.
 
 ```python
-from binsai import World, WorldConfig
+import os
+# os.environ["DEEPSEEK_API_KEY"] = "sk-..."
 
-# dry_run_llm=True corre sin API key — LLM sintético offline
-mundo = World(WorldConfig(seed=42, dry_run_llm=True))
+from binsai import World, WorldConfig, AgentConfig
+from binsai.action_registry import ActionSet, ActionSpec, _handler_llm, _handler_noop
 
-# Ejecutar 200 ticks, recolectar telemetría
-log = mundo.run(200)
+def _social_llm(action_name, satiate_amount=0.5):
+    def handler(agent, drive, tick, demand, difficulty):
+        r = agent.drives.get("relatedness")
+        if r:
+            r.satiate(satiate_amount)
+        return "llm"
+    return handler
+
+social_actions = ActionSet([
+    ActionSpec(name="reply", requires_demand=True, delta_cost=0.002, ticks=1,
+               max_tokens=256, beta=-0.5, bias=+1.6, handler=_social_llm("reply")),
+    ActionSpec(name="initiate_contact", requires_demand=False, delta_cost=0.003,
+               ticks=1, max_tokens=256, beta=+6.0, bias=-1.0,
+               handler=_social_llm("initiate_contact")),
+    ActionSpec(name="idle", requires_demand=False, handler=_handler_noop),
+])
+
+config = WorldConfig(seed=42, dry_run_llm=("DEEPSEEK_API_KEY" not in os.environ),
+    agents=[AgentConfig(name="HomeoBot", drive_names=["relatedness"],
+                        drive_configs=[{"name": "relatedness", "lambda_rate": 0.010,
+                                        "set_point": 0.30, "satiation_rate": 0.30}],
+                        temperature=1.0)])
+w = World(config)
+for a in w.agents:
+    a.action_set = social_actions
+
+log = w.run(60)
 df = log.to_dataframe()
-
-# Comparar regulado vs no regulado
-ultimo = df.sort_values("tick").groupby("agent").last()
-print(ultimo[["session_tokens", "session_cost_usd", "session_deferred"]])
-
-# Exportar para análisis
-log.save_jsonl("simulacion_oficina.jsonl")
+print(df[df["agent"] == "HomeoBot"]["action"].value_counts())
 ```
 
 ### 3. El operador indeciso — tensiones antagónicas
@@ -568,26 +587,7 @@ print(f"Rango tareas pend.: {min(bl_traj):.3f}–{max(bl_traj):.3f}")
 # Ambos se mantienen en ~0.25–0.35 — apretados alrededor del set-point, sin escalarizar
 ```
 
-### 4. El científico de datos — ejecutar, exportar, graficar
-
-```python
-from binsai import World, WorldConfig
-
-mundo = World(WorldConfig(seed=42, dry_run_llm=True))
-log = mundo.run(300)
-
-# Exportar
-log.save_jsonl("resultados.jsonl")
-log.save_csv("resultados.csv")
-df = log.to_dataframe()
-
-# Graficar (requiere matplotlib — pip install binsai[analysis])
-from binsai.report import plot_trajectories, plot_kpi_comparison
-plot_trajectories(log)
-plot_kpi_comparison(log)
-```
-
-Los cuatro ejemplos también están disponibles como [notebook de Colab](notebooks/binsai_quickstart.ipynb).
+Los tres ejemplos también están disponibles como [notebook de Colab](notebooks/binsai_quickstart.ipynb).
 
 ---
 
@@ -689,12 +689,12 @@ Auditabilidad: cada decisión deja traza de qué drives la condicionaron. Pre-ch
 
 ## Comparación con otros frameworks
 
-| Framework | Foco | ¿Binsai lo complementa? |
-|-----------|------|------------------------|
-| LangGraph | Grafos de control de flujo | Sí, como capa regulatoria encima |
-| AutoGen | Conversación multi-agente | Sí, como estado interno de cada agente |
-| CrewAI | Delegación de tareas | Sí, como motivación de cada miembro |
-| OpenClaw | Razonamiento simbólico | Sí, integramos su capa simbólica |
+| Framework | Foco | Qué agrega Binsai encima |
+|-----------|------|-------------------------|
+| LangGraph | Grafos de control de flujo / orquestación | Drives que deciden *cuándo* un nodo o agente debe dispararse — no solo la topología del grafo |
+| AutoGen | Conversación multi-agente | Estado interno por agente: cada agente recibe drives que regulan cuándo habla o actúa |
+| CrewAI | Delegación de tareas por roles | Estado motivacional por miembro: los drives deciden cuándo un rol actúa, difiere o descansa |
+| OpenClaw | Asistente personal / gateway multi-canal | Drives internos que regulan cuándo el asistente actúa, difiere o conserva recursos entre canales |
 
 **No competimos**: Binsai es el *sustrato*, ellos son el *framework*.
 
