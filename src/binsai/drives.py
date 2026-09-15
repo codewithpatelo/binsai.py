@@ -6,7 +6,11 @@ Semantics (HRRL convention — Keramati-Gutkin 2014; Driveplexity):
 
     deplete(amount)  → raises δ  (resource consumed: tokens spent, cost incurred)
     satiate(amount)  → lowers δ  (resource gained: task completed, consolidation)
-    update()         → raises δ by λ per tick (basal metabolic cost of being active)
+    update()         → applies elastic return + basal flux β per tick.
+                       β = lambda_rate is SIGNED:
+                         β > 0  → inaction accumulates need (hunger)
+                         β < 0  → inaction restores (sleep / energy recovery)
+                         β = 0  → only stimuli and actions move the drive
 
 10 canonical drives across 6 Bunge-Romero strata.
 Only δ_metabolic (S1) is active in MVP1; the rest are defined for MVP2+.
@@ -54,7 +58,9 @@ class Drive:
         value:          Current δ ∈ [0, 1]  (high = deficit)
         set_point:      Homeostatic target ε
         kappa:          Elastic return rate (Γ-κ); larger = stiffer thermostat
-        lambda_rate:    Basal drift per tick λ (added to δ each tick)
+        lambda_rate:    Basal flux β per tick, SIGNED: >0 accumulates need under
+                        inaction (hunger); <0 restores under inaction (sleep);
+                        0 = stimulus/action-driven only.
         satiation_rate: Multiplier applied in satiate()
         subdrives:      Child drives for recursive decomposition (e.g. metabolic → tokens, latency, cost)
         description:    Human-readable explanation
@@ -76,6 +82,7 @@ class Drive:
 
     # Internal: not part of public API
     _history: list[tuple[int, float]] = field(default_factory=list, repr=False)
+    _events:  list[tuple[int, str]]  = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         self.value     = float(self.value)
@@ -134,10 +141,51 @@ class Drive:
         """Absolute urgency: 0 at set-point, 1 at maximum deviation."""
         return abs(self.deviation)
 
+    @property
+    def resting_level(self) -> float:
+        """Where the drive settles under inaction (basal flux vs spring).
+
+        With spring (κ > 0): x_rest = ε + β/κ — the level at which the
+        drift β and the elastic return −κ(x − ε) cancel. Unclipped; it may
+        fall outside [0,1], in which case the drive rests against a bound.
+
+        Without spring (κ = 0): pure integrator → the boundary toward which
+        β points (1.0 if β > 0, 0.0 if β < 0, current value if β = 0).
+        """
+        if self.kappa > 0:
+            return self.set_point + self.lambda_rate / self.kappa
+        if self.lambda_rate > 0:
+            return 1.0
+        if self.lambda_rate < 0:
+            return 0.0
+        return self.value
+
+    @property
+    def history(self) -> list[tuple[int, float]]:
+        """Trajectory as (tick, value) pairs, oldest first (read-only copy)."""
+        return list(self._history)
+
+    @property
+    def events(self) -> list[tuple[int, str]]:
+        """Recorded events as (tick, kind) pairs, oldest first (read-only copy).
+
+        kind is one of ``"sat"`` (action that satiated), ``"pert"`` (action that
+        perturbed), ``"alarm"`` (entered the red zone) or ``"shock"``.
+        """
+        return list(self._events)
+
+    def record_event(self, tick: int, kind: str) -> None:
+        """Append an event for visualisation (e.g. an action that satiates/perturbs)."""
+        self._events.append((int(tick), kind))
+
     def update(self, tick: int = 0, coupling: float = 0.0) -> list[tuple[str, str]] | None:
         """Apply autonomous terms: elastic return to ε + drift + coupling.
 
             x_{t+1} = x_t − κ·(x_t − ε) + drift(value, set_point, tick) + W·φ(x_{t-τ})
+
+        The drift term is β (lambda_rate, signed) shaped by the configured
+        policy: for "constant", it is exactly β per tick, so a negative β
+        lowers δ under inaction (restorative drive).
 
         Returns a list of zone transition events if the dominant zone changed,
         otherwise None. Each event is (event_type, zone_name) e.g.

@@ -17,6 +17,7 @@ from .sleep import ConsolidationWorker, WakeGuard, SleepConfig
 from .action_registry import ActionSpec, ActionSet
 from .llm import DeepSeekBackend, DryRunBackend, get_backend, LLMTelemetry, ModelConfig
 from .report import SimulationLog
+from .viz import timeline_svg, timeline_html
 from .world.world import World, WorldConfig, AgentConfig, AgentFrame, WorldFrame
 
 __all__ = [
@@ -53,6 +54,9 @@ __all__ = [
     "ActionSet",
     # Telemetry
     "SimulationLog",
+    # Visualization
+    "timeline_svg",
+    "timeline_html",
     # World / simulation
     "World",
     "WorldConfig",
