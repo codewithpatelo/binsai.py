@@ -59,7 +59,7 @@ class ConsolidationWorker:
         self,
         config: SleepConfig | None = None,
         recovery_per_item: float = 0.03,
-        passive_recovery:  float = 0.008,
+        passive_recovery:  float = 0.02,
     ) -> None:
         self.config = config or SleepConfig()
         self.recovery_per_item = recovery_per_item

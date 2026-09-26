@@ -324,10 +324,10 @@ class InboxScene extends Phaser.Scene {
     });
     lY += 11;
     var statusRows = [
-      [0x3fb950, '#3fb950', '● active (glow)'],
-      [0x3fb950, '#58a6ff', '⚡ working (flash)'],
+      [0xd2a8ff, '#d2a8ff', '● waiting (EPA decides)'],
+      [0x58a6ff, '#58a6ff', '● active (working)'],
       [0x484f58, '#484f58', '● suspended'],
-      [0xf85149, '#f85149', '● error'],
+      [0xf85149, '#f85149', '● critical'],
     ];
     statusRows.forEach(function(row) {
       legGfx.fillStyle(row[0], 0.9);
@@ -975,7 +975,7 @@ class InboxScene extends Phaser.Scene {
     else if (status === 'error')      dotState = 'error';
     else if (status === 'waiting')    dotState = 'waiting';
     else if (status === 'initiated')  dotState = 'initiated';
-    else if (isWorking)               dotState = 'working';
+    else if (status === 'active' || isWorking) dotState = 'working';
     else                              dotState = 'active';
 
     if (dotState === obj.lastDotState) return;

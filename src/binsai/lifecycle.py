@@ -1,22 +1,31 @@
-"""FIPA-inspired lifecycle with explicit causal transitions.
+"""FIPA lifecycle with explicit causal transitions (EPA spec §6.1).
 
 Every state change requires a non-empty cause string so that the event log
 is always auditable — we know exactly why an agent changed state.
 
-States:
-    INITIATED  → agent created, not yet running
-    ACTIVE     → normal operation
-    SUSPENDED  → sleeping (consolidation mode)
-    CRITICAL   → δ sustained above critical threshold for T_critical_dwell ticks
-    TERMINATED → end of simulation (MVP1: never reached automatically)
+States (FIPA Agent Management):
+    INITIATED  → created, not yet running            (EPA: not updated)
+    WAITING    → alive, no task in course            (EPA updated; decides)
+    ACTIVE     → executing a committed task          (EPA updated; no new
+                 decisions — avoids dithering mid-task)
+    SUSPENDED  → sleeping / consolidation            (EPA updated, basal only)
+    TERMINATED → end of simulation
+    TRANSIT    → reserved (FIPA mobile agents)       — not used yet
+
+    CRITICAL   → Binsai extension: δ sustained in a red zone for
+                 T_critical_dwell ticks. Alarm state — the agent freezes
+                 until reset. (FIPA has no equivalent; documented extension.)
 
 Transitions:
-    INITIATED → ACTIVE    (activate, cause: "start")
-    ACTIVE    → SUSPENDED (cause: regulatory — sleep action chosen)
-    ACTIVE    → CRITICAL  (cause: regulatory — dwell timer expired)
-    SUSPENDED → ACTIVE    (cause: wake — δ recovered AND queue consolidated)
-    CRITICAL  → ACTIVE    (cause: ablation reset or manual intervention)
-    any       → TERMINATED (cause: explicit shutdown)
+    INITIATED --invoke-->  WAITING
+    WAITING   --execute--> ACTIVE      (EPA decision or incoming message)
+    ACTIVE    --done|abort--> WAITING  (commitment rule; abort only on
+                                        red zone / viability breach)
+    WAITING   --suspend--> SUSPENDED   (consolidation, rest)
+    SUSPENDED --resume-->  WAITING
+    WAITING|ACTIVE --dwell--> CRITICAL (Binsai extension)
+    CRITICAL  --reset-->   WAITING
+    any       --quit-->    TERMINATED
 """
 
 from __future__ import annotations
@@ -28,19 +37,26 @@ from typing import Optional
 
 class FIPAState(Enum):
     INITIATED  = "initiated"
-    ACTIVE     = "active"
+    WAITING    = "waiting"     # alive, idle, EPA decides (was ACTIVE pre-0.2)
+    ACTIVE     = "active"      # executing a committed task (was implicit)
     SUSPENDED  = "suspended"
-    CRITICAL   = "critical"
+    CRITICAL   = "critical"    # Binsai extension (not in FIPA)
     TERMINATED = "terminated"
+    TRANSIT    = "transit"     # reserved — mobile agents, not used yet
 
 
 # Valid transitions: (from, to) pairs
 _VALID_TRANSITIONS: set[tuple[FIPAState, FIPAState]] = {
-    (FIPAState.INITIATED,  FIPAState.ACTIVE),
-    (FIPAState.ACTIVE,     FIPAState.SUSPENDED),
-    (FIPAState.ACTIVE,     FIPAState.CRITICAL),
-    (FIPAState.SUSPENDED,  FIPAState.ACTIVE),
-    (FIPAState.CRITICAL,   FIPAState.ACTIVE),
+    (FIPAState.INITIATED,  FIPAState.WAITING),     # invoke
+    (FIPAState.WAITING,    FIPAState.ACTIVE),      # execute
+    (FIPAState.ACTIVE,     FIPAState.WAITING),     # done | abort
+    (FIPAState.WAITING,    FIPAState.SUSPENDED),   # suspend
+    (FIPAState.SUSPENDED,  FIPAState.WAITING),     # resume
+    (FIPAState.WAITING,    FIPAState.CRITICAL),    # dwell alarm (extension)
+    (FIPAState.ACTIVE,     FIPAState.CRITICAL),    # dwell while working
+    (FIPAState.CRITICAL,   FIPAState.WAITING),     # reset
+    (FIPAState.CRITICAL,   FIPAState.SUSPENDED),   # forced consolidation from alarm
+    (FIPAState.WAITING,    FIPAState.TERMINATED),  # quit
     (FIPAState.ACTIVE,     FIPAState.TERMINATED),
     (FIPAState.SUSPENDED,  FIPAState.TERMINATED),
     (FIPAState.CRITICAL,   FIPAState.TERMINATED),
@@ -61,7 +77,7 @@ class LifecycleManager:
 
     Args:
         initial:           Starting state (default INITIATED)
-        T_critical_dwell:  Ticks in zone critical before ACTIVE → CRITICAL (default 60)
+        T_critical_dwell:  Ticks in a red zone before → CRITICAL (default 60)
     """
 
     def __init__(
@@ -101,11 +117,11 @@ class LifecycleManager:
         self._state = to
 
     def tick_critical_zone(self, tick: int) -> bool:
-        """Call each tick when drive is in critical zone while ACTIVE.
+        """Call each tick when a drive is in a red zone while operational.
 
-        Returns True and fires ACTIVE → CRITICAL if dwell threshold exceeded.
+        Returns True and fires → CRITICAL if dwell threshold exceeded.
         """
-        if self._state != FIPAState.ACTIVE:
+        if self._state not in (FIPAState.WAITING, FIPAState.ACTIVE):
             self._critical_ticks = 0
             return False
 
@@ -114,21 +130,38 @@ class LifecycleManager:
             self._critical_ticks = 0
             self.transition(
                 FIPAState.CRITICAL,
-                cause=f"critical_dwell: δ in critical zone for {self.T_critical_dwell} ticks",
+                cause=f"critical_dwell: δ in red zone for {self.T_critical_dwell} ticks",
                 tick=tick,
             )
             return True
         return False
 
     def reset_critical_counter(self) -> None:
-        """Reset dwell counter when agent leaves critical zone."""
+        """Reset dwell counter when the agent leaves the red zone."""
         self._critical_ticks = 0
 
+    # ── State predicates ────────────────────────────────────────────────────
+
+    def is_waiting(self) -> bool:
+        """WAITING — alive, no task in course; the EPA may decide."""
+        return self._state == FIPAState.WAITING
+
     def is_active(self) -> bool:
+        """ACTIVE — executing a committed task (no new decisions)."""
         return self._state == FIPAState.ACTIVE
+
+    def is_operational(self) -> bool:
+        """WAITING or ACTIVE — the agent participates in the world."""
+        return self._state in (FIPAState.WAITING, FIPAState.ACTIVE)
 
     def is_suspended(self) -> bool:
         return self._state == FIPAState.SUSPENDED
+
+    def is_critical(self) -> bool:
+        return self._state == FIPAState.CRITICAL
+
+    def is_terminated(self) -> bool:
+        return self._state == FIPAState.TERMINATED
 
     def last_event(self) -> Optional[LifecycleEvent]:
         return self._history[-1] if self._history else None

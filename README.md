@@ -7,7 +7,7 @@
 <p align="center">
   <img src="./binsaiui.png" alt="Binsai MVP1 demo — 3 agents regulated by metabolic drive" width="640" style="max-width: 90%; border-radius: 8px; margin: 1em 0;" />
   <br>
-  <sub><i>MVP1: 3 agents (Alpha, Beta, Gamma) regulated by δ_metabolic. Green = active, Red = suspended.</i></sub>
+  <sub><i>MVP1: 3 agents (Alpha, Beta, Gamma) regulated by δ_metabolic. Violet = waiting, Blue = active task, Gray = suspended, Red = critical.</i></sub>
 </p>
 
 <p align="center">
@@ -33,7 +33,7 @@
 
 Instead of only asking what an agent can do, Binsai helps decide **why, when, and whether it should act**.
 
-**Current version**: 0.1.1 · **Status**: MVP 1 "Hungry Agents" ✅ — [See demo](examples/mvp1_hungry/)
+**Current version**: 0.2.0 · **Status**: MVP 1 "Hungry Agents" ✅ — `binsai run mvp1 --no-llm`
 
 ---
 
@@ -67,6 +67,80 @@ Binsai adds an internal regulatory layer: drives, needs, set-points, deficits, a
 
 Binsai is **not** a competitor to LangGraph, AutoGen, or CrewAI. It is a regulatory substrate that gives them internal motivational dynamics — helping decide *why, when, and whether* an agent should act.
 
+Binsai is to the EPA what scikit-learn is to statistical models, and to self-regulating agents what NetLogo is to agent-based models — a library for research, not a production framework.
+
+---
+
+## The Pro-Action Equation (EPA)
+
+Binsai implements the **EPA** — a state equation that models *viability*, not optimization. For each need `i`, on every pulse:
+
+```
+x_i(t+1) = x_i(t) + λ_i(x_i,t) − κ_i·(x_i(t) − x_i*) + u_i(t) + Σ_j W_ij·(x_j(t) − x_j*)
+```
+
+| Term | Name | What it does |
+|---|---|---|
+| `x_i` | need level | the regulated state |
+| `x_i*` | set-point | theoretical harmony point |
+| `λ_i` | basal drift | what happens when nothing happens (`basal_direction`: `"recover"`/`"decay"`, shaped by `drift`) |
+| `κ_i` | elastic spring | pulls toward set-point; keeps the system oscillating instead of freezing at equilibrium |
+| `u_i` | stimuli & actions | satiate (α>0) or perturb (α<0) the deviation |
+| `W_ij` | coupling | how much another need's deviation moves this one |
+
+There is **no terminal objective to maximize** — only ranges to sustain. Every need is either `push` (accumulates pressure → activates) or `pull` (protects a resource → inhibits, often by *doing* a preservation task). A minimally viable system needs at least one of each — if all needs are `pull`, the optimal policy is inaction.
+
+Full spec (ES): [`docs/EPA.md`](docs/EPA.md)
+
+### Algedonic zones
+
+Each need carries seven fuzzy bands symmetric around its set-point (`critical_superavit … equilibrium … critical_deficit`), with parametrizable centers, widths and hysteresis (`alpha_in`/`alpha_out`). Crossing a band emits `ZoneChanged`; crossing a viability limit emits `ViabilityBreached` — operational death, conjunctive over all needs.
+
+### Observed variables: level + pace
+
+A need doesn't look at its level in a vacuum — it observes operational variables, each contributing two signals: **level** (how close to the limit right now) and **pace** (how fast it moves toward the limit, vs. the sustainable rate *derived from the contract window* — never hand-picked).
+
+```python
+from binsai import Drive, ObservedVariable
+
+api_spend = ObservedVariable(
+    name="api_spend", kind="budget", unit="USD",
+    limit=150.0, window=11.5,                # per-shift budget window
+    pacing_mode="time_to_violation",
+    recovery_time=0.5,                       # MEASURED, not chosen
+    reaction_time=0.1,
+    monotonic=True, source="billing.api",
+)
+
+metabolic = Drive(name="metabolic", category="pull", observed=[api_spend])
+
+api_spend.observe(t=3.0, value=60.0)    # feed a sensor sample
+metabolic.update(tick=3.0)              # → metabolic.pressure, metabolic.driving_variable
+```
+
+Four contract kinds: `budget` (consumed within a window), `floor` (must not drop below), `target` (must be reached in time), `band` (must stay inside a range). Sensor gone stale or returning impossible values? `SensorInvalid` is emitted — **a variable that can't be measured is never assumed green**.
+
+Contract values live in versioned files, not code — see [`examples/viability-contract.json`](examples/viability-contract.json) + [`viability-contract.md`](examples/viability-contract.md), loaded via `binsai.load_contract()`.
+
+### Canonical events & FIPA subscription
+
+`Pulse`, `ZoneChanged`, `PressureUpdated`, `SensorInvalid`, `ViabilityBreached`, `Satiated`, `Coupled`. Needs and agents are all emitters:
+
+```python
+sub_id = drive_b.subscribe(drive_a, "ZoneChanged", handler)   # FIPA: subscribe
+drive_b.unsubscribe(sub_id)                                   # FIPA: cancel
+
+agent.on("drive.hunger.critical_deficit", react)              # zone-specific
+agent.on("ZoneChanged", audit)                                # canonical
+```
+
+### Lifecycle (FIPA)
+
+`INITIATED → WAITING → ACTIVE → WAITING`, plus `SUSPENDED` and `TERMINATED`.
+`WAITING` is where the EPA decides; `ACTIVE` means a task is committed — no new decisions mid-task (avoids dithering), unless a red band or viability breach interrupts it (`interrupt_on_zone`, default `"critical"`). `TRANSIT` is reserved for future mobile agents.
+
+> **Breaking change in 0.2.0**: the state previously called `ACTIVE` is now `WAITING` (alive, idle, EPA decides); `ACTIVE` now means *executing a committed task*, matching FIPA nomenclature.
+
 ---
 
 ## Installation
@@ -99,7 +173,7 @@ for _ in range(10):
 
 This creates 3 agents (Alpha, Beta, Gamma) with heterogeneous λ rates. Gamma starts unregulated for ablation comparison. Each tick: demands arrive, agents appraise and act, drives evolve.
 
-Full demo: [`examples/mvp1_hungry/`](examples/mvp1_hungry/)
+Visual demo: `binsai run mvp1` (add `--no-llm` for a dry run with no API key, `--ablation-off` to disable regulation). Requires `pip install binsai[web]`.
 
 ## Usage — three examples, from zero to plots
 
@@ -229,12 +303,12 @@ All three examples are also available as a [Colab notebook](notebooks/binsai_qui
 This release is **MVP1 — Hungry Agent**. It implements the metabolic drive layer (Bunge S1) with:
 
 - **One active drive**: `metabolic` — regulates when the agent sleeps, acts fast, acts slow, defers, or goes idle.
-- **FIPA lifecycle**: `INITIATED → ACTIVE → SUSPENDED → ACTIVE` with causal transitions.
+- **FIPA lifecycle**: `INITIATED → WAITING → ACTIVE → WAITING`, `WAITING ↔ SUSPENDED`, with causal transitions and red-band interrupts.
 - **Sleep/consolidation**: When metabolic deficit exceeds threshold, agent suspends; wakes when recovered AND queue is empty.
 - **State injection**: Regulatory state (δ, zone) is embedded in LLM prompts so the model reads its own "physiology".
 - **Symbolic pre-check**: A minimal rule-checker gates proactive actions based on drive zone and queue size.
 
-**What is NOT in MVP1**: The other 9 canonical drives do not yet affect behavior. Memory is native bounded working memory only (no LangGraph/LlamaIndex/Mem0 adapters yet). Neuro-symbolic layer is a rule-checker, not yet DeLP/AHP/TOPSIS.
+**What is NOT in MVP1**: The other 9 canonical drives do not yet affect behavior. The satiation-quality signal `g`, the action-skills catalog, and allostasis (anticipatory regulation with a world model) are open problems — see [`docs/EPA.md` §7](docs/EPA.md). Memory is native bounded working memory only (no LangGraph/LlamaIndex/Mem0 adapters yet). Neuro-symbolic layer is a rule-checker, not yet DeLP/AHP/TOPSIS.
 
 ---
 
@@ -279,7 +353,7 @@ Each MVP ships with a visual demo using Phaser 3:
 
 | MVP | Demo | What it shows |
 |-----|------|---------------|
-| 1 | [Hungry Agents](examples/mvp1_hungry/) | `δ_metabolic` (S1 Bunge) + dummy human + FIPA lifecycle + fuzzy sigmoid |
+| 1 | Hungry Agents — `binsai run mvp1` | `δ_metabolic` (S1 Bunge) + dummy human + FIPA lifecycle + fuzzy sigmoid |
 | 2 | Curious Agent (upcoming) | All S3 drives: `δ_safety`, `δ_epistemic`, `δ_coherence`, `δ_competence` |
 | 3 | Social Agent (upcoming) | S5 drives: `δ_relatedness`, `δ_autonomy` |
 | 4 | Reflective Agent (upcoming) | Tri-process arbitrator (Γ operator) |
@@ -370,7 +444,9 @@ Binsai ships incrementally through six MVPs, each adding a Bunge ontological lev
 - [ ] **MVP 4 — Reflective Agent**: Tri-process arbitrator (Γ), SAM/HPA hormonal delays, metacognition, ask/wait/act/back-off
 - [ ] **MVP 5 — Operator Demos**: Driveplexity + Γ operators ported into Binsai, `δ_niche_construction`, `δ_artifact_integrity` (S4), `δ_meaning` (S6)
 - [ ] **MVP 6 — World Model + VSM**: OntologicalGraph (E, R, M, V, C), recursive VSM agents, neuro-symbolic wrappers (DeLP/AAF/AHP/TOPSIS)
-- [ ] **v0.1.0**: PyPI release, Zenodo DOI, full documentation
+- [x] **v0.1.0**: PyPI release, MVP1 demo
+- [x] **v0.2.0**: EPA revision — `ObservedVariable` (level + pacing), push/pull categories, hysteresis, viability contracts, FIPA lifecycle (`WAITING`/`ACTIVE`), canonical events, expanded ACL
+- [ ] **v1.0.0**: Zenodo DOI, full documentation, quality signal `g`, skill catalog schema
 
 ---
 
@@ -398,7 +474,7 @@ Copyright (C) 2026 Patricio Gerpe
 
 En lugar de preguntar solo qué puede hacer un agente, Binsai ayuda a decidir **por qué, cuándo y si debe actuar**.
 
-**Versión actual**: 0.1.1 · **Estado**: MVP 1 "Agentes Hambrientos" ✅
+**Versión actual**: 0.2.0 · **Estado**: MVP 1 "Agentes Hambrientos" ✅ — `binsai run mvp1 --no-llm`
 
 ---
 
@@ -433,6 +509,80 @@ Los frameworks modernos hacen a los LLMs más capaces agregando herramientas, me
 Binsai agrega una capa regulatoria interna: drives, necesidades, set-points, déficits y políticas de intervención adaptativas. Se inspira en neurociencia cognitiva, cibernética (Stafford Beer) y materialismo sistémico (Bunge-Romero).
 
 Binsai **no** compite con LangGraph, AutoGen o CrewAI. Es un sustrato regulatorio que les da dinámicas motivacionales internas — ayudando a decidir *por qué, cuándo y si* un agente debe actuar.
+
+Binsai es a la EPA lo que scikit-learn es a los modelos estadísticos, y a los agentes autorregulados lo que NetLogo es a los modelos basados en agentes — una librería para investigar, no un framework de producción.
+
+---
+
+## La Ecuación Proacción (EPA)
+
+Binsai implementa la **EPA** — una ecuación de estados que modela *viabilidad*, no optimización. Para cada necesidad `i`, en cada pulso:
+
+```
+x_i(t+1) = x_i(t) + λ_i(x_i,t) − κ_i·(x_i(t) − x_i*) + u_i(t) + Σ_j W_ij·(x_j(t) − x_j*)
+```
+
+| Término | Nombre | Qué hace |
+|---|---|---|
+| `x_i` | nivel de la necesidad | el estado que se regula |
+| `x_i*` | punto de equilibrio | el punto teórico de armonía |
+| `λ_i` | deriva basal | qué le pasa a la necesidad si no ocurre nada (`basal_direction`: `"recover"`/`"decay"`, forma por `drift`) |
+| `κ_i` | resorte elástico | tira hacia el equilibrio; mantiene la oscilación viva en vez de congelarse en el set-point |
+| `u_i` | estímulos y acciones | sacia (α>0) o perturba (α<0) el desvío |
+| `W_ij` | acoplamiento | cuánto el desvío de otra necesidad mueve a esta |
+
+**No hay objetivo terminal que maximizar** — hay rangos que se sostienen. Toda necesidad es `push` (acumula presión → activa) o `pull` (protege un recurso → inhibe, muchas veces *haciendo* una tarea de preservación). Un sistema viable de mínima necesita una de cada tipo — si todas son `pull`, la política óptima es no hacer nada.
+
+Spec completa: [`docs/EPA.md`](docs/EPA.md)
+
+### Zonas algedónicas
+
+Cada necesidad tiene siete bandas difusas simétricas respecto del punto de equilibrio (`critical_superavit … equilibrium … critical_deficit`), con centros, anchos e histéresis (`alpha_in`/`alpha_out`) parametrizables. Cruzar una banda emite `ZoneChanged`; cruzar el límite de viabilidad emite `ViabilityBreached` — muerte operativa, conjuntiva sobre todas las necesidades.
+
+### Variables observadas: nivel y ritmo
+
+Una necesidad no mira su nivel en el vacío — observa variables operativas, y cada una aporta dos señales: **nivel** (qué tan cerca del límite está ahora) y **ritmo** (a qué velocidad se acerca, vs. el ritmo sostenible *derivado del contrato y la ventana* — nunca elegido a mano).
+
+```python
+from binsai import Drive, ObservedVariable
+
+gasto_api = ObservedVariable(
+    name="gasto_api", kind="budget", unit="USD",
+    limit=150.0, window=11.5,                # presupuesto por ventana
+    pacing_mode="time_to_violation",
+    recovery_time=0.5,                       # MEDIDO, no elegido
+    reaction_time=0.1,
+    monotonic=True, source="billing.api",
+)
+
+metabolico = Drive(name="metabolic", category="pull", observed=[gasto_api])
+
+gasto_api.observe(t=3.0, value=60.0)    # muestra del sensor
+metabolico.update(tick=3.0)             # → metabolico.pressure, metabolico.driving_variable
+```
+
+Cuatro tipos de contrato: `budget` (se consume dentro de una ventana), `floor` (no debe bajar del piso), `target` (hay que alcanzarlo en la ventana), `band` (debe quedar dentro de un rango). ¿Sensor vencido o valor imposible? Se emite `SensorInvalid` — **una variable que no se puede medir nunca se asume en verde**.
+
+Los valores del contrato viven en archivos versionados, no en el código — ver [`examples/viability-contract.json`](examples/viability-contract.json) + [`viability-contract.md`](examples/viability-contract.md), cargables con `binsai.load_contract()`.
+
+### Eventos canónicos y suscripción FIPA
+
+`Pulse`, `ZoneChanged`, `PressureUpdated`, `SensorInvalid`, `ViabilityBreached`, `Satiated`, `Coupled`. Necesidades y agentes son emisores:
+
+```python
+sub_id = drive_b.subscribe(drive_a, "ZoneChanged", handler)   # FIPA: subscribe
+drive_b.unsubscribe(sub_id)                                   # FIPA: cancel
+
+agent.on("drive.hunger.critical_deficit", reaccionar)         # por zona
+agent.on("ZoneChanged", auditar)                              # canónico
+```
+
+### Ciclo de vida (FIPA)
+
+`INITIATED → WAITING → ACTIVE → WAITING`, más `SUSPENDED` y `TERMINATED`.
+`WAITING` es donde la EPA decide; `ACTIVE` significa tarea comprometida — no se toman decisiones nuevas a mitad de tarea (evita el dithering), salvo que una banda roja o un cruce de viabilidad la interrumpa (`interrupt_on_zone`, default `"critical"`). `TRANSIT` queda reservado para agentes móviles.
+
+> **Cambio breaking en 0.2.0**: el estado que antes se llamaba `ACTIVE` ahora es `WAITING` (vivo, disponible, la EPA decide); `ACTIVE` ahora significa *ejecutando una tarea comprometida*, siguiendo la nomenclatura FIPA.
 
 ---
 
@@ -596,12 +746,12 @@ Los tres ejemplos también están disponibles como [notebook de Colab](notebooks
 Este release es **MVP1 — Agente Hambriento**. Implementa la capa de drive metabólico (Bunge S1):
 
 - **Un drive activo**: `metabolic` — regula cuándo el agente duerme, actúa rápido, lento, difiere o está inactivo.
-- **Ciclo FIPA**: `INITIATED → ACTIVE → SUSPENDED → ACTIVE` con transiciones causales.
+- **Ciclo FIPA**: `INITIATED → WAITING → ACTIVE → WAITING`, `WAITING ↔ SUSPENDED`, con transiciones causales e interrupción por banda roja.
 - **Sueño/consolidación**: Cuando el déficit metabólico excede el umbral, el agente se suspende; despierta cuando se recupera Y la cola está vacía.
 - **Inyección de estado**: El estado regulatorio (δ, zona) se incrusta en los prompts del LLM para que el modelo lea su propia "fisiología".
 - **Pre-check simbólico**: Un verificador de reglas mínimo controla acciones proactivas según zona y tamaño de cola.
 
-**Qué NO está en MVP1**: Los otros 9 drives canónicos no afectan el comportamiento. La memoria es nativa de trabajo limitada (sin adapters para LangGraph/LlamaIndex/Mem0). La capa neuro-simbólica es un verificador de reglas, no DeLP/AHP/TOPSIS todavía.
+**Qué NO está en MVP1**: Los otros 9 drives canónicos no afectan el comportamiento. La señal de calidad `g`, el catálogo de acciones como skills y la alostasis (regulación anticipatoria con modelo del mundo) son problemas abiertos — ver [`docs/EPA.md` §7](docs/EPA.md). La memoria es nativa de trabajo limitada (sin adapters para LangGraph/LlamaIndex/Mem0). La capa neuro-simbólica es un verificador de reglas, no DeLP/AHP/TOPSIS todavía.
 
 ---
 
@@ -646,7 +796,7 @@ Cada MVP incluye una demo visual con Phaser 3:
 
 | MVP | Demo | Qué muestra |
 |-----|------|-------------|
-| 1 | [Hungry Agents](examples/mvp1_hungry/) | `δ_metabolic` (S1 Bunge) + dummy human + ciclo FIPA + sigmoide difusa |
+| 1 | Hungry Agents — `binsai run mvp1` | `δ_metabolic` (S1 Bunge) + dummy human + ciclo FIPA + sigmoide difusa |
 | 2 | Curious Agent (próximamente) | Drives S3: `δ_safety`, `δ_epistemic`, `δ_coherence`, `δ_competence` |
 | 3 | Social Agent (próximamente) | Drives S5: `δ_relatedness`, `δ_autonomy` |
 | 4 | Reflective Agent (próximamente) | Árbitro tri-proceso (Γ) |
@@ -727,7 +877,9 @@ Binsai se publica incrementalmente en seis MVPs, cada uno agregando un nivel ont
 - [ ] **MVP 4 — Agente Reflexivo**: Árbitro tri-proceso (Γ), demoras hormonales SAM/HPA, metacognición
 - [ ] **MVP 5 — Demos de Operadores**: Γ corriendo dentro de Binsai, `δ_niche_construction`, `δ_artifact_integrity` (S4), `δ_meaning` (S6)
 - [ ] **MVP 6 — Modelo de Mundo + VSM**: Grafo ontológico (E, R, M, V, C), agentes VSM recursivos, wrappers neuro-simbólicos (DeLP/AAF/AHP/TOPSIS)
-- [ ] **v0.1.0**: release PyPI, DOI Zenodo, documentación completa
+- [x] **v0.1.0**: release PyPI, demo MVP1
+- [x] **v0.2.0**: revisión EPA — `ObservedVariable` (nivel + ritmo), categorías push/pull, histéresis, contratos de viabilidad, ciclo FIPA (`WAITING`/`ACTIVE`), eventos canónicos, ACL extendido
+- [ ] **v1.0.0**: DOI Zenodo, documentación completa, señal de calidad `g`, esquema de skills
 
 ---
 

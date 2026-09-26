@@ -26,6 +26,7 @@ from typing import Any, Callable, Optional
 
 from .acl import ACLMessage, Mailbox, Performative
 from .drives import Drive, Drives
+from .events import EventEmitter
 from .lifecycle import FIPAState, LifecycleManager
 from .fuzzy import compute_action_distribution, sample_action
 from .actions import (
@@ -56,19 +57,23 @@ class Position:
         return ((self.x - other.x) ** 2 + (self.y - other.y) ** 2) ** 0.5
 
 
-class BinsaiAgent:
-    """Core Binsai agent — regulatory substrate over a tick-based interoceptive loop.
+class BinsaiAgent(EventEmitter):
+    """Core Binsai agent — regulatory substrate over a pulse-based interoceptive loop.
 
     Args:
-        name:             Human-readable label (e.g. "Alpha")
-        drives:           Stratified drives collection (defaults to full 10-drive set)
-        position:         2D spatial position
-        metadata:         Arbitrary key-value bag for framework integration
-        lambda_override:  Override metabolic λ for heterogeneity demos
-        ablation_off:     If True, action selection is uniform (regulation disabled)
-        dry_run_llm:      If True, LLM calls return synthetic payloads (no API key needed)
-        temperature:      Softmax temperature for action selection
-        rng:              Seeded random.Random instance (injected by World for reproducibility)
+        name:               Human-readable label (e.g. "Alpha")
+        drives:             Needs collection (defaults to full 10-need preset)
+        position:           2D spatial position
+        metadata:           Arbitrary key-value bag for framework integration
+        lambda_override:    Override metabolic λ for heterogeneity demos
+        ablation_off:       If True, action selection is uniform (regulation disabled)
+        dry_run_llm:        If True, LLM calls return synthetic payloads (no API key needed)
+        temperature:        Softmax temperature for action selection
+        rng:                Seeded random.Random instance (injected by World for reproducibility)
+        interrupt_on_zone:  Zone prefix that aborts an in-flight action (ACTIVE→WAITING).
+                            Default "critical" — red bands and viability breaches
+                            interrupt work; anything less does not (commitment rule).
+        terminate_on_breach: If True, a ViabilityBreached event terminates the agent.
     """
 
     def __init__(
@@ -84,14 +89,21 @@ class BinsaiAgent:
         rng:             Optional[Any]      = None,
         backend:         Any                = None,
         action_set:      Any                = None,
+        interrupt_on_zone:   str            = "critical",
+        terminate_on_breach: bool           = False,
     ) -> None:
         import random as _random
 
+        self._init_bus()
         self.aid      = str(uuid.uuid4())[:8]
+        self.addresses: list[str] = []      # AID transport addresses (FIPA)
         self.name     = name
         self.drives   = drives or Drives.stratified()
         self.position = position or Position()
         self.metadata = metadata or {}
+        self.interrupt_on_zone   = interrupt_on_zone
+        self.terminate_on_breach = terminate_on_breach
+        self.viable   = True               # False once a viability limit is crossed
 
         self.ablation_off = ablation_off
         self.dry_run_llm  = dry_run_llm
@@ -137,12 +149,15 @@ class BinsaiAgent:
         if metabolic and lambda_override is not None:
             metabolic.lambda_rate = lambda_override
 
-        # FIPA lifecycle
+        # FIPA lifecycle (INITIATED → WAITING on activate)
         self._lifecycle = LifecycleManager()
 
-        # Event bus
-        self._event_handlers:        dict[str, list[Callable]] = {}
-        self._global_event_handlers: list[Callable]            = []
+        # Drive event forwarding — drives emit on their own bus (ZoneChanged,
+        # Satiated, Coupled, ...); we re-emit them here under both the canonical
+        # name and the legacy dot-syntax (drive.<name>.<zone>) for compat.
+        for d in self.drives:
+            d.on_any(self._forward_drive_event)
+
         self._subscribed_agents:     dict[str, "BinsaiAgent"]  = {}
 
         # Demand queue: demands waiting to be processed
@@ -174,13 +189,13 @@ class BinsaiAgent:
     # ── Lifecycle ────────────────────────────────────────────────────────────────
 
     def activate(self) -> None:
-        """INITIATED → ACTIVE."""
+        """INITIATED → WAITING (FIPA: invoke)."""
         if self._lifecycle.state == FIPAState.INITIATED:
-            self._lifecycle.transition(FIPAState.ACTIVE, cause="start", tick=0)
+            self._lifecycle.transition(FIPAState.WAITING, cause="invoke", tick=0)
             self.emit("lifecycle", {"event": "activated", "agent": self.name})
 
     def can_participate(self) -> bool:
-        return self._lifecycle.is_active()
+        return self._lifecycle.is_operational()
 
     def _add_task_label(self, label: str) -> None:
         """Append a task label to pending, filtering meta/junk strings from LLM."""
@@ -200,33 +215,71 @@ class BinsaiAgent:
 
     # ── Tick loop (interoceptive + exteroceptive) ────────────────────────────────
 
+    def _forward_drive_event(self, envelope: dict) -> None:
+        """Bridge drive-level events onto the agent bus.
+
+        Drives emit canonical events on their own bus (ZoneChanged, Satiated,
+        Coupled, PressureUpdated, SensorInvalid, ViabilityBreached). The agent
+        re-emits them under the canonical name AND legacy dot-syntax
+        (drive.<name>.<zone>) so both subscription styles work.
+        """
+        etype      = envelope.get("type", "")
+        payload    = envelope.get("payload", {})
+        drive_name = payload.get("drive") or envelope.get("source") or "?"
+
+        if etype == "ZoneChanged":
+            zone = payload.get("zone", "")
+            prev = payload.get("prev_zone")
+            enriched = {**payload, "agent": self.name}
+            if prev:
+                self.emit(f"drive.{drive_name}.zone.exit", enriched)
+            self.emit(f"drive.{drive_name}.zone.enter", enriched)
+            self.emit(f"drive.{drive_name}.{zone}", enriched)
+            self.emit(etype, enriched)
+        elif etype == "ViabilityBreached":
+            self.viable = False
+            self.emit(etype, {**payload, "agent": self.name})
+            self.emit(f"drive.{drive_name}.viability_breached", payload)
+            if self.terminate_on_breach and not self._lifecycle.is_terminated():
+                try:
+                    self._lifecycle.transition(
+                        FIPAState.TERMINATED,
+                        cause=f"quit: viability breach on {drive_name}",
+                        tick=payload.get("tick", 0),
+                    )
+                    self.emit("lifecycle", {
+                        "event": "terminated", "agent": self.name,
+                        "cause": f"viability breach on {drive_name}",
+                    })
+                except ValueError:
+                    pass
+        else:
+            self.emit(etype, {**payload, "agent": self.name})
+            snake = etype.lower()
+            self.emit(f"drive.{drive_name}.{snake}", payload)
+
     def tick(self, t: int, world: Any = None) -> dict:  # noqa: ARG002  (world reserved for MVP2+ multi-process)
-        """Execute one simulation tick. Returns a summary dict for WorldFrame.
+        """Execute one pulse. Returns a summary dict for WorldFrame.
 
         Steps:
-          1. Basal λ decay on all drives
-          2. Branch on ACTIVE vs SUSPENDED
-          3. Emit tick summary
+          1. Emit Pulse — the heartbeat that updates the EPA
+          2. Basal λ drift on all needs (all states except INITIATED/TERMINATED;
+             in SUSPENDED only the basal drift applies — spec §6.1)
+          3. Branch on WAITING (decide) / ACTIVE (continue committed action)
+             / SUSPENDED (consolidate)
+          4. Emit tick summary
         """
         self._current_tick = t
-        # Use the first available drive as the primary regulatory drive
+        self.emit("Pulse", {"agent": self.name, "tick": t, "status": self.status})
+        # Primary regulatory need (first available)
         drive = self.drives.get("metabolic") or next(iter(self.drives), None)
 
-        # 1. Basal decay only during ACTIVE — sleep is restorative, no metabolic burn
-        # Ablation agents have no drive regulation, so no decay (flat line)
-        if not self._lifecycle.is_suspended() and not self.ablation_off:
-            transitions = self.drives.update_all(tick=t)
-            # Emit zone transition events per drive
-            for drive_name, evts in transitions.items():
-                for evt_type, zone_name in evts:
-                    self.emit(f"drive.{drive_name}.{evt_type}", {
-                        "drive": drive_name, "zone": zone_name, "tick": t,
-                    })
-                    # Also emit drive-specific zone events: drive.metabolic.critical, etc.
-                    if evt_type == "zone.enter":
-                        self.emit(f"drive.{drive_name}.{zone_name}", {
-                            "drive": drive_name, "zone": zone_name, "tick": t,
-                        })
+        # EPA update runs in WAITING, ACTIVE, SUSPENDED and CRITICAL —
+        # the pulse always updates, haya o no estímulos (spec §2.2).
+        # Ablation agents keep a flat line (control arm: regulation off).
+        if not self._lifecycle.is_terminated() and self._lifecycle.state != FIPAState.INITIATED \
+                and not self.ablation_off:
+            self.drives.update_all(tick=t)
 
         summary: dict = {
             "agent":    self.name,
@@ -244,12 +297,20 @@ class BinsaiAgent:
             self._tick_suspended(drive, t)
 
         elif self._lifecycle.is_active():
-            action_taken = self._tick_active(drive, t)
+            # ACTIVE = committed task in course — continue it, no new decisions
+            action_taken = self._tick_working(drive, t)
             self.last_action = action_taken
             summary["action"] = action_taken
 
-            # Critical zone dwell check
-            if drive and drive.get_zone() == "critical":
+        elif self._lifecycle.is_waiting() or self._lifecycle.is_critical():
+            # WAITING = the state where the EPA decides (critical agents also try)
+            action_taken = self._tick_waiting(drive, t)
+            self.last_action = action_taken
+            summary["action"] = action_taken
+
+        # Critical dwell check — while operational (waiting or working)
+        if self._lifecycle.is_operational() and drive is not None:
+            if drive.get_zone().startswith("critical"):
                 transitioned = self._lifecycle.tick_critical_zone(t)
                 if transitioned:
                     self.emit("lifecycle", {
@@ -263,6 +324,50 @@ class BinsaiAgent:
 
         self.emit("tick.summary", summary)
         return summary
+
+    def _interrupted(self, drive: Optional[Drive]) -> bool:
+        """Red-band / viability interrupt while ACTIVE (spec §6.1 commitment rule)."""
+        if not self.viable:
+            return True
+        if drive is None:
+            return False
+        return drive.get_zone().startswith(self.interrupt_on_zone)
+
+    def _tick_working(self, drive: Optional[Drive], t: int) -> str:
+        """One tick while ACTIVE — continue the committed action.
+
+        No new decisions are made here (commitment rule). Exception: a red
+        algedonic band or a viability breach aborts the action → WAITING.
+        """
+        if self.current_action is None:
+            # Nothing in flight (shouldn't happen) — fall back to WAITING
+            self._lifecycle.transition(FIPAState.WAITING, cause="done: nothing in flight", tick=t)
+            return "idle"
+
+        if self._interrupted(drive):
+            aborted = self.current_action.kind.value
+            self.current_action = None
+            self._lifecycle.transition(
+                FIPAState.WAITING,
+                cause=f"abort: {self.interrupt_on_zone} interrupt at t={t}",
+                tick=t,
+            )
+            self.emit("lifecycle", {
+                "event": "aborted", "agent": self.name, "tick": t,
+                "cause": f"{self.interrupt_on_zone} interrupt", "action": aborted,
+            })
+            return "aborted"
+
+        self.current_action.ticks_remaining -= 1
+        if self.current_action.ticks_remaining <= 0:
+            done_name = self.current_action.kind.value
+            self._complete_action(self.current_action, drive, t)
+            self.current_action = None
+            self._lifecycle.transition(
+                FIPAState.WAITING, cause=f"done: {done_name}", tick=t,
+            )
+            return done_name
+        return self.current_action.kind.value
 
     def _tick_suspended(self, drive: Optional[Drive], t: int) -> None:
         """One tick of sleep: consolidate one demand item, check wake."""
@@ -293,8 +398,8 @@ class BinsaiAgent:
                 self._add_task_label(f"Reply: {topic.replace('_', ' ')}")
 
             self._lifecycle.transition(
-                FIPAState.ACTIVE,
-                cause=f"wake: recovered+consolidated at t={t}",
+                FIPAState.WAITING,
+                cause=f"resume: recovered+consolidated at t={t}",
                 tick=t,
             )
             self.emit("lifecycle", {
@@ -304,19 +409,25 @@ class BinsaiAgent:
                 "cause": f"wake: recovered+consolidated (flushed {n_buffered} buffered)",
             })
 
-    def _tick_active(self, drive: Optional[Drive], t: int, world: Any = None) -> str:  # noqa: ARG002
-        """One tick of active operation. Returns name of action taken."""
-        # Drain active mailbox inbox → enqueue demands
+    def _tick_waiting(self, drive: Optional[Drive], t: int, world: Any = None) -> str:  # noqa: ARG002
+        """One tick in WAITING — the state where the EPA decides.
+
+        Drains the mailbox, appraises the next demand, samples the action
+        distribution and starts the chosen action. Single-tick actions run
+        inline; multi-tick actions commit the agent to ACTIVE until done.
+        """
+        # Drain mailbox inbox → enqueue demands
         for msg in self.mailbox.drain_inbox():
             self._enqueue_from_message(msg)
 
-        # Continue multi-tick action if in progress
+        # A multi-tick action left in flight (e.g. after CRITICAL dwell) resumes
         if self.current_action is not None:
-            self.current_action.ticks_remaining -= 1
-            if self.current_action.ticks_remaining <= 0:
-                self._complete_action(self.current_action, drive, t)
-                self.current_action = None
-            return self.current_action.kind.value if self.current_action else "completing"
+            self._lifecycle.transition(
+                FIPAState.ACTIVE,
+                cause=f"execute: resume {self.current_action.kind.value}",
+                tick=t,
+            )
+            return self.current_action.kind.value
 
         # ── Ablation branch: parallel unregulated architecture ──
         # No appraisal, no fuzzy selection, no sleep, no proact, no state injection.
@@ -469,9 +580,16 @@ class BinsaiAgent:
             self._on_action_complete(execution, t)
             return action_name
 
-        # Multi-tick: store in-progress
+        # Multi-tick: commit — WAITING → ACTIVE until done|abort
         execution.ticks_remaining -= 1
         self.current_action = execution
+        if self._lifecycle.is_waiting() or self._lifecycle.is_critical():
+            try:
+                self._lifecycle.transition(
+                    FIPAState.ACTIVE, cause=f"execute: {action_name}", tick=t,
+                )
+            except ValueError:
+                pass
         return action_name
 
     def _appraise(self, topic: str, message: str, drive: Optional[Drive]) -> AppraisedTask:
@@ -656,56 +774,21 @@ class BinsaiAgent:
             "demand": execution.demand_id,
         })
 
-    # ── Event System ─────────────────────────────────────────────────────────────
+    # ── Event System (EventEmitter: on/off/emit/on_any/subscribe/unsubscribe) ────
 
-    def on(self, event_type: str, handler: Callable[[Any], None]) -> None:
-        if event_type not in self._event_handlers:
-            self._event_handlers[event_type] = []
-        self._event_handlers[event_type].append(handler)
-
-    def off(self, event_type: str, handler: Optional[Callable] = None) -> None:
-        if event_type in self._event_handlers:
-            if handler is None:
-                self._event_handlers[event_type] = []
-            else:
-                self._event_handlers[event_type] = [
-                    h for h in self._event_handlers[event_type] if h != handler
-                ]
-
-    def emit(self, event_type: str, payload: Any) -> None:
-        """Emit event — no implicit drive coupling (explicit in tick loop)."""
-        for handler in self._event_handlers.get(event_type, []):
-            try:
-                handler(payload)
-            except Exception as e:
-                print(f"[{self.name}] handler error for {event_type}: {e}")
-
-        envelope = {
-            "type":       event_type,
-            "source":     self.aid,
-            "agent_name": self.name,
-            "payload":    payload,
-        }
-        for handler in self._global_event_handlers:
-            try:
-                handler(envelope)
-            except Exception as e:
-                print(f"[{self.name}] global handler error for {event_type}: {e}")
-
-    def on_any(self, handler: Callable[[Any], None]) -> None:
-        self._global_event_handlers.append(handler)
-
-    def off_any(self, handler: Callable[[Any], None]) -> None:
-        self._global_event_handlers = [h for h in self._global_event_handlers if h != handler]
-
-    def subscribe_to(self, other: "BinsaiAgent") -> None:
-        self._subscribed_agents[other.aid] = other
-        other.on_any(self._handle_external_event)
+    def subscribe_to(self, other: "BinsaiAgent") -> int:
+        """FIPA subscribe — receive all events from another agent.
+        Returns a subscription_id; cancel with unsubscribe(sub_id)."""
+        sub_id = self.subscribe(other, None, self._handle_external_event)
+        self._subscribed_agents[other.aid] = (other, sub_id)
+        return sub_id
 
     def unsubscribe_from(self, other: "BinsaiAgent") -> None:
-        if other.aid in self._subscribed_agents:
-            del self._subscribed_agents[other.aid]
-            other.off_any(self._handle_external_event)
+        """FIPA cancel — stop receiving another agent's events."""
+        entry = self._subscribed_agents.pop(other.aid, None)
+        if entry is not None:
+            _, sub_id = entry
+            self.unsubscribe(sub_id)
 
     def _handle_external_event(self, event: Any) -> None:
         source     = event.get("source")
@@ -713,7 +796,7 @@ class BinsaiAgent:
         payload    = event.get("payload", {})
         if source not in self._subscribed_agents:
             return
-        for handler in self._event_handlers.get(event_type, []):
+        for handler in list(self._bus_handlers.get(event_type, {}).values()):
             try:
                 handler(payload)
             except Exception as e:
@@ -787,14 +870,17 @@ class BinsaiAgent:
     # ── Introspection ─────────────────────────────────────────────────────────────
 
     def get_state(self) -> dict:
-        drive = self.drives.get("metabolic")
+        drive = self.drives.get("metabolic") or next(iter(self.drives), None)
         return {
             "aid":        self.aid,
             "name":       self.name,
             "status":     self.status,
+            "viable":     self.viable,
             "delta":      round(drive.value, 4) if drive else None,
             "zone":       drive.get_zone() if drive else None,
             "memberships": drive.zone_memberships() if drive else {},
+            "pressure":   drive.pressure if drive else None,
+            "driving_variable": drive.driving_variable if drive else None,
             "queue":      len(self.pending_demands),
             "action":     self.current_action.kind.value if self.current_action else None,
             "position":   {"x": self.position.x, "y": self.position.y},

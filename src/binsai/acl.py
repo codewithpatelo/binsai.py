@@ -5,14 +5,20 @@ Every inter-entity message — human→agent, agent→agent, agent→human —
 travels as an ACLMessage. Internal agent events (drive crossings, action
 completions) are NOT ACL: they are agent-private and never appear on the wire.
 
-Subset of FIPA-ACL we use in MVP1:
-    REQUEST  — sender asks receiver to perform an action
-    INFORM   — sender shares a fact (e.g. response to a REQUEST)
-    REFUSE   — receiver declines a REQUEST it cannot/will not perform
-    AGREE    — receiver acknowledges it will attempt the REQUEST
-    FAILURE  — receiver attempted but failed
+Subset of FIPA-ACL used in Binsai (EPA spec §6.2):
+    REQUEST          — sender asks receiver to perform an action
+    INFORM           — sender shares a fact (e.g. response to a REQUEST)
+    REFUSE           — receiver declines a REQUEST it cannot/will not perform
+    AGREE            — receiver acknowledges it will attempt the REQUEST
+    FAILURE          — receiver attempted but failed
+    QUERY_IF         — ask about the state of something
+    SUBSCRIBE        — subscribe to an emitter's events
+    CANCEL           — cancel a subscription
+    PROPOSE          — negotiation: propose a course of action
+    ACCEPT_PROPOSAL  — accept a proposal
+    REJECT_PROPOSAL  — reject a proposal
 
-Reserved for MVP2+: QUERY_IF, PROPOSE, ACCEPT_PROPOSAL, NOT_UNDERSTOOD, CFP.
+Reserved: NOT_UNDERSTOOD, CFP.
 """
 
 from __future__ import annotations
@@ -25,11 +31,17 @@ from typing import Any, Optional
 
 
 class Performative(Enum):
-    REQUEST = "request"
-    INFORM  = "inform"
-    REFUSE  = "refuse"
-    AGREE   = "agree"
-    FAILURE = "failure"
+    REQUEST          = "request"
+    INFORM           = "inform"
+    REFUSE           = "refuse"
+    AGREE            = "agree"
+    FAILURE          = "failure"
+    QUERY_IF         = "query-if"
+    SUBSCRIBE        = "subscribe"
+    CANCEL           = "cancel"
+    PROPOSE          = "propose"
+    ACCEPT_PROPOSAL  = "accept-proposal"
+    REJECT_PROPOSAL  = "reject-proposal"
 
 
 @dataclass

@@ -70,7 +70,7 @@ import matplotlib.pyplot as plt
 deltas = []
 for tick in range(80):
     agent.tick(tick)
-    h = drives.get("hunger")
+    h = agent.drives.get("hunger")
     deltas.append(h.value if h else 0.30)
 
 plt.figure(figsize=(8, 2.5))
@@ -177,12 +177,12 @@ print(f"Agent initiated contact at ticks: {proact_ticks}")
 
 # %%
 from binsai import World, WorldConfig, AgentConfig, Drives, Drive
-from binsai.action_registry import ActionSet, ActionSpec, _handler_llm, _handler_noop
+from binsai.action_registry import ActionSet, ActionSpec, _handler_llm, _handler_noop, _handler_sleep
 
 # 1. Create two coupled drives
 drives = Drives([
-    Drive(name="metabolic", stratum=Stratum.MATERIAL, value=0.30, lambda_rate=0.005),
-    Drive(name="task_load",  stratum=Stratum.TECHNICAL, value=0.30, lambda_rate=0.003),
+    Drive(name="metabolic", value=0.30, lambda_rate=0.005),
+    Drive(name="task_load", value=0.30, lambda_rate=0.003),
 ])
 # Coupling: task_load → metabolic (busy agent burns more resources)
 drives.set_coupling({
@@ -211,7 +211,7 @@ routing_actions = ActionSet([
     ),
     ActionSpec(name="idle", requires_demand=False, handler=_handler_noop),
     ActionSpec(name="sleep", requires_demand=False, beta=+10.0, bias=-6.0,
-               handler=lambda a, d, t, dm, df: "sleep"),
+               handler=_handler_sleep),
 ])
 
 config = WorldConfig(
@@ -240,18 +240,20 @@ df = log.to_dataframe()
 router = df[df["agent"] == "Router"]
 
 # Show routing decisions at key moments — what model was chosen and why
-print("tick | metabolic δ | metabolic zone       | task_load δ | task_load zone       | action")
-print("-" * 95)
+# The log records the primary drive (metabolic) level and zone per tick.
+print("tick | metabolic d | metabolic zone       | action")
+print("-" * 60)
 for tick in range(0, 80, 8):
     row = router[router["tick"] == tick]
     if len(row) == 0: continue
     r = row.iloc[0]
-    m = w.agents[0].drives.get("metabolic")
-    tl = w.agents[0].drives.get("task_load")
-    # Re-run to get drive values at this tick (they're consumed by the log but we can re-read)
-    m_val = m.value if m else 0.30
-    tl_val = tl.value if tl else 0.30
-    print(f"  {tick:3d} |     {m_val:.3f}   | {m.get_zone():20s} |      {tl_val:.3f}  | {tl.get_zone():20s} | {r['action']}")
+    print(f"  {tick:3d} |     {r['delta']:.3f}   | {r['zone']:20s} | {r['action']}")
+
+# Final state of both drives (post-run snapshot)
+m  = w.agents[0].drives.get("metabolic")
+tl = w.agents[0].drives.get("task_load")
+print()
+print(f"Final: metabolic d={m.value:.3f} ({m.get_zone()}), task_load d={tl.value:.3f} ({tl.get_zone()})")
 
 print()
 print("Action distribution:", dict(router["action"].value_counts()))
@@ -277,18 +279,19 @@ print("coupled to metabolic — a busy agent burns more resources, creating natu
 # drives and picks the action that keeps both within viable ranges — without scalarizing.
 
 # %%
-from binsai import Drive, Stratum
+from binsai import Drive
 import math, random
 
 rng = random.Random(7)
 
 # Two genuinely antagonistic drives
-ctx = Drive(name="context_fill", stratum=Stratum.TECHNICAL,
+ctx = Drive(name="context_fill",
             value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.005)
-bl  = Drive(name="task_backlog", stratum=Stratum.TECHNICAL,
+bl  = Drive(name="task_backlog",
             value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.004)
 
 ctx_traj, bl_traj, actions = [], [], []
+ctx_zones, bl_zones = [], []
 for tick in range(300):
     # Both drives decay each tick
     ctx.update(tick); bl.update(tick)
@@ -312,6 +315,8 @@ for tick in range(300):
 
     ctx_traj.append(ctx.value)
     bl_traj.append(bl.value)
+    ctx_zones.append(ctx.get_zone())
+    bl_zones.append(bl.get_zone())
 
 # Plot: two drives oscillating in opposite phase, both staying viable
 import matplotlib.pyplot as plt
@@ -340,15 +345,15 @@ print(f"Correlation (ctx vs backlog): {corr:.3f} — negative = genuine tension"
 print(f"Action distribution: {dict(counts)}")
 print()
 print("Sample of decision-making (every 50 ticks):")
-print("tick | context_fill δ | context zone         | task_backlog δ | backlog zone         | action")
+print("tick | context_fill d | context zone         | task_backlog d | backlog zone         | action")
 print("-" * 95)
 for tick in range(0, 300, 50):
-    print(f"  {tick:3d} |        {ctx_traj[tick]:.3f}  | {ctx.get_zone():20s} |         {bl_traj[tick]:.3f}  | {bl.get_zone():20s} | {actions[tick]}")
+    print(f"  {tick:3d} |        {ctx_traj[tick]:.3f}  | {ctx_zones[tick]:20s} |         {bl_traj[tick]:.3f}  | {bl_zones[tick]:20s} | {actions[tick]}")
 print()
 print("Key insight: no single scalar 'utility' can capture both drives — any")
 print("weighted sum picks an arbitrary exchange rate ('how many context tokens")
 print("is one pending task worth?'). Homeostasis maintains both in viable range")
-print("without ever scalarizing. The Γ operator is designed for multi-objective")
+print("without ever scalarizing. The Gamma operator is designed for multi-objective")
 print("regulation where the goal is maintenance itself, not optimization.")
 
 # %%
@@ -359,8 +364,8 @@ print("regulation where the goal is maintenance itself, not optimization.")
 # what fraction of ticks BOTH drives stay inside the viable band [0.22, 0.40].
 
 def simulate_with_weight(w, seed=7):
-    ctx = Drive(name='ctx', stratum=Stratum.TECHNICAL, value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.005)
-    bl  = Drive(name='bl',  stratum=Stratum.TECHNICAL, value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.004)
+    ctx = Drive(name='ctx', value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.005)
+    bl  = Drive(name='bl',  value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.004)
     ctx_in, bl_in = 0, 0
     for tick in range(300):
         ctx.update(tick); bl.update(tick)

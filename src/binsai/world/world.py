@@ -113,7 +113,14 @@ class WorldFrame:
 
 
 class World:
-    """Deterministic simulation world."""
+    """Deterministic simulation world — the FIPA platform role (EPA §6.3).
+
+    Responsibilities:
+        - Agent registry by AID with lifecycle state (AMS role)
+        - Message transport between agents and event delivery to subscribers
+        - The clock: emits the Pulse that updates every agent's EPA
+        - The trace: full record of pulses, band changes, messages, transitions
+    """
 
     def __init__(self, config: WorldConfig | None = None) -> None:
         self.config = config or WorldConfig()
@@ -137,6 +144,21 @@ class World:
     @property
     def backend_name(self) -> str:
         return getattr(self._backend, "name", "?")
+
+    # ── AMS role (FIPA Agent Management System) ──────────────────────────────
+
+    @property
+    def registry(self) -> dict[str, BinsaiAgent]:
+        """AID → agent registry (AMS)."""
+        return {a.aid: a for a in self.agents}
+
+    def find_agent(self, aid: str) -> BinsaiAgent | None:
+        """Look up an agent by AID."""
+        return self.registry.get(aid)
+
+    def agents_by_state(self, state: str) -> list[BinsaiAgent]:
+        """All agents currently in a given FIPA lifecycle state."""
+        return [a for a in self.agents if a.status == state]
 
     def _make_backend(self):
         from ..llm import get_backend

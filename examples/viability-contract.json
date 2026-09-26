@@ -1,0 +1,72 @@
+{
+  "contract": "agent-operations-night-shift",
+  "version": "0.1.0",
+  "semantics": "viability-contract.md",
+  "variables": [
+    {
+      "name": "gasto_api",
+      "kind": "budget",
+      "unit": "USD",
+      "limit": 150.0,
+      "window": 11.5,
+      "pressure_fn": "barrier",
+      "pacing_mode": "time_to_violation",
+      "recovery_time": 0.5,
+      "reaction_time": 0.1,
+      "rate_estimator": {"type": "window", "span": 1.0},
+      "monotonic": true,
+      "max_staleness": 0.25,
+      "valid_range": [0, null],
+      "source": "dashboard.billed_attributed",
+      "provenance": "contract"
+    },
+    {
+      "name": "ram_libre",
+      "kind": "floor",
+      "unit": "GB",
+      "limit": 2.0,
+      "set_point": 12.0,
+      "window": 11.5,
+      "pressure_fn": "barrier",
+      "pacing_mode": "time_to_violation",
+      "recovery_time": 0.25,
+      "reaction_time": 0.05,
+      "rate_estimator": {"type": "window", "span": 0.5},
+      "monotonic": false,
+      "max_staleness": 0.1,
+      "valid_range": [0, 64],
+      "source": "psutil.virtual_memory().available",
+      "provenance": "measurement"
+    },
+    {
+      "name": "entregas",
+      "kind": "target",
+      "unit": "deliverables",
+      "limit": 2.0,
+      "window": 8.0,
+      "pressure_fn": "linear",
+      "pacing_mode": "ratio",
+      "rate_estimator": {"type": "ewma", "alpha": 0.3},
+      "monotonic": true,
+      "max_staleness": 1.0,
+      "valid_range": [0, null],
+      "source": "tracker.approved_count",
+      "provenance": "contract"
+    },
+    {
+      "name": "cola_pendientes",
+      "kind": "band",
+      "unit": "tasks",
+      "limit": [0.0, 20.0],
+      "set_point": 5.0,
+      "pressure_fn": "barrier",
+      "pacing_mode": "none",
+      "rate_estimator": {"type": "window", "span": 0.5},
+      "monotonic": false,
+      "max_staleness": 0.5,
+      "valid_range": [0, null],
+      "source": "queue.depth",
+      "provenance": "assumption"
+    }
+  ]
+}

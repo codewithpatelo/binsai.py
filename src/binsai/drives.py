@@ -1,19 +1,38 @@
-"""Stratified drives — Bunge-Romero ontological levels.
+"""Needs (drives) — EPA state equation with algedonic zones.
+
+The Pro-Action Equation (EPA), per need i, per pulse:
+
+    x_i(t+1) = x_i(t) + λ_i(x_i, t) − κ_i·(x_i(t) − x_i*) + u_i(t)
+               + Σ_j W_ij·(x_j(t) − x_j*)
+
+    x_i   level of the need          | the state being regulated
+    x_i*  set-point                  | theoretical harmony point
+    λ_i   basal drift                | what happens if nothing happens
+    κ_i   elastic spring             | pulls toward set-point, keeps oscillation alive
+    u_i   stimuli & actions          | satiate (α>0, reduces deviation) or perturb (α<0)
+    W_ij  coupling                   | how much another need's deviation moves this one
 
 Semantics (HRRL convention — Keramati-Gutkin 2014; Driveplexity):
-    δ ∈ [0, 1]  |  HIGH = deficit = urgency  |  LOW = abundance / oversated
-    set_point (ε) is the homeostatic target (nominal zone center ≈ 0.30).
+    δ ∈ [0, 1]  |  HIGH = deficit = urgency  |  LOW = abundance / superavit
+    set_point (x*) is the homeostatic target (equilibrium zone center ≈ 0.30).
 
     deplete(amount)  → raises δ  (resource consumed: tokens spent, cost incurred)
     satiate(amount)  → lowers δ  (resource gained: task completed, consolidation)
-    update()         → applies elastic return + basal flux β per tick.
-                       β = lambda_rate is SIGNED:
-                         β > 0  → inaction accumulates need (hunger)
-                         β < 0  → inaction restores (sleep / energy recovery)
-                         β = 0  → only stimuli and actions move the drive
+    update()         → applies λ + elastic return + coupling per pulse.
+                       λ = lambda_rate is SIGNED (or set via basal_direction):
+                         "recover" / λ > 0 → inaction accumulates need (hunger)
+                         "decay"   / λ < 0 → inaction restores (sleep / energy)
+                         λ = 0            → only stimuli and actions move the need
 
-10 canonical drives across 6 Bunge-Romero strata.
-Only δ_metabolic (S1) is active in MVP1; the rest are defined for MVP2+.
+Need categories (EPA §2.4):
+    push — moves toward activation: the longer you wait, the more pressure
+    pull — moves toward inhibition: the more you consume, the more it pulls
+           back. A pull need can still ACTIVATE the agent — inhibiting often
+           means doing a preservation task (kill processes, compact context).
+    A minimally viable system needs at least one of each.
+
+10 canonical drives across 6 Bunge-Romero strata are importable presets —
+defaults, not constraints. Only δ_metabolic (S1) is active in MVP1.
 """
 
 from __future__ import annotations
@@ -22,17 +41,22 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Optional
 
+from .events import (
+    EventEmitter, ZONE_CHANGED, PRESSURE_UPDATED, SATIATED, COUPLED,
+    VIABILITY_BREACHED,
+)
+
 
 @dataclass
 class ZoneSpec:
-    """A named fuzzy zone with center and width (Gaussian σ)."""
+    """A named fuzzy algedonic zone with center and width (Gaussian σ)."""
     name:   str
     center: float
     width:  float = 0.12
 
 
 class Stratum(Enum):
-    """Bunge-Romero ontological levels."""
+    """Bunge-Romero ontological levels (descriptive taxonomy — optional)."""
     MATERIAL       = "material"        # S1
     CHEMICAL       = "chemical"        # S2 (empty for AI)
     BIOLOGICAL     = "biological"      # S3
@@ -42,28 +66,37 @@ class Stratum(Enum):
 
 
 @dataclass
-class Drive:
-    """A homeostatic drive with bilateral set-point regulation.
+class Drive(EventEmitter):
+    """A need with bilateral set-point regulation (EPA state equation).
 
-    Discrete-time dynamics (one tick), aligned with Γ master equation:
-        x_{t+1} = x_t − κ(x_t − ε) + λ − α·ρ(action, env) + W·φ(x_{t-τ})
+    Discrete-time dynamics (one pulse):
+        x(t+1) = x(t) + λ(x,t) − κ·(x(t) − x*) + u(t) + Σ_j W_j·(x_j(t−τ) − x_j*)
 
-    update() applies the autonomous terms (elastic return + basal drift).
-    satiate() / deplete() apply the action-feedback term −α·ρ.
-    Coupling W·φ is reserved for MVP2+ (multiple drives).
+    update() applies the autonomous terms (basal drift + elastic return + coupling).
+    satiate() / deplete() apply the action-feedback term u.
 
     Attributes:
-        name:           Drive identifier
-        stratum:        Ontological level (Bunge-Romero)
-        value:          Current δ ∈ [0, 1]  (high = deficit)
-        set_point:      Homeostatic target ε
-        kappa:          Elastic return rate (Γ-κ); larger = stiffer thermostat
-        lambda_rate:    Basal flux β per tick, SIGNED: >0 accumulates need under
-                        inaction (hunger); <0 restores under inaction (sleep);
-                        0 = stimulus/action-driven only.
-        satiation_rate: Multiplier applied in satiate()
-        subdrives:      Child drives for recursive decomposition (e.g. metabolic → tokens, latency, cost)
-        description:    Human-readable explanation
+        name:            Need identifier
+        category:        "push" (accumulates pressure → activates) or
+                         "pull" (protects a resource → inhibits/preserves)
+        stratum:         Ontological level (Bunge-Romero) — optional taxonomy
+        value:           Current x ∈ [0, 1]  (high = deficit)
+        set_point:       Homeostatic target x*
+        kappa:           Elastic return rate κ; larger = stiffer thermostat
+        lambda_rate:     Basal flux λ per pulse, SIGNED (or via basal_direction)
+        basal_direction: Optional semantic alias: "recover" forces λ>0 (the need
+                         builds under inaction, e.g. hunger), "decay" forces
+                         λ<0 (the need fades under inaction, e.g. energy debt)
+        satiation_rate:  Multiplier applied in satiate()
+        alpha_in:        Hysteresis — membership needed to ENTER a new zone
+        alpha_out:       Hysteresis — current zone held while its membership
+                         stays above this (α_in/α_out; spec §3)
+        viability:       (lo, hi) viability limits — crossing is operational
+                         death; emits ViabilityBreached (conjunctive over needs)
+        observed:        ObservedVariable list — operational variables this
+                         need senses (level + pace pressure; spec §4)
+        subdrives:       Child needs for recursive decomposition
+        description:     Human-readable explanation
     """
     name:           str
     stratum:        Optional[Stratum] = None  # descriptive taxonomy, does not affect simulation
@@ -72,25 +105,43 @@ class Drive:
     kappa:          float = 0.05
     lambda_rate:    float = 0.005
     satiation_rate: float = 0.10
+    category:       str   = "push"     # "push" | "pull" (EPA §2.4)
+    basal_direction: Optional[str] = None  # "decay" | "recover" — sets sign of λ
     subdrives:      list["Drive"] = field(default_factory=list)
     description:    str   = ""
     drift:          str   = "constant"  # "constant" | "linear" | "exponential" | "circadian" | callable
     drift_period:   int   = 120        # circadian period in ticks
     drift_k:        float = 1.0        # exponential drift coefficient
     satiation:      str   = "linear"   # "linear" | "saturating" | "sigmoid" | callable
-    zones:          Optional[list[ZoneSpec]] = None  # None = default 5 zones
+    zones:          Optional[list[ZoneSpec]] = None  # None = default 7 algedonic bands
+    alpha_in:       float = 0.0        # hysteresis: μ needed to enter a new zone
+    alpha_out:      float = 1.0        # hysteresis: exit old zone when μ ≤ this
+    viability:      tuple[float, float] = (0.0, 1.0)  # viability limits
+    observed:       list  = field(default_factory=list)  # list[ObservedVariable]
 
     # Internal: not part of public API
     _history: list[tuple[int, float]] = field(default_factory=list, repr=False)
     _events:  list[tuple[int, str]]  = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
+        self._init_bus()
         self.value     = float(self.value)
         self.set_point = float(self.set_point)
         if not 0.0 <= self.value <= 1.0:
             raise ValueError(f"Drive value must be in [0,1], got {self.value}")
         if not 0.0 <= self.set_point <= 1.0:
             raise ValueError(f"Set point must be in [0,1], got {self.set_point}")
+        if self.category not in ("push", "pull"):
+            raise ValueError(f"Drive category must be 'push' or 'pull', got {self.category!r}")
+        # basal_direction fixes the sign of λ semantically
+        if self.basal_direction == "recover":
+            self.lambda_rate = abs(self.lambda_rate)
+        elif self.basal_direction == "decay":
+            self.lambda_rate = -abs(self.lambda_rate)
+        elif self.basal_direction is not None:
+            raise ValueError(
+                f"basal_direction must be 'decay' or 'recover', got {self.basal_direction!r}"
+            )
         # Resolve drift to callable if it's a named policy
         if isinstance(self.drift, str):
             self._drift_fn = self._resolve_drift(self.drift)
@@ -101,6 +152,9 @@ class Drive:
             self._satiation_fn = self._resolve_satiation(self.satiation)
         else:
             self._satiation_fn = self.satiation
+        # Observed-variable pressure state (EPA §4.8)
+        self.pressure:         Optional[float] = None
+        self.driving_variable: Optional[str]   = None
         # Default zones if none provided — 7 interpretable bands
         # Low δ = superavit (abundance), high δ = deficit (scarcity)
         if self.zones is None:
@@ -178,19 +232,24 @@ class Drive:
         """Append an event for visualisation (e.g. an action that satiates/perturbs)."""
         self._events.append((int(tick), kind))
 
-    def update(self, tick: int = 0, coupling: float = 0.0) -> list[tuple[str, str]] | None:
-        """Apply autonomous terms: elastic return to ε + drift + coupling.
+    def update(self, tick: int = 0, coupling: float = 0.0,
+               coupling_sources: Optional[dict[str, float]] = None) -> list[tuple[str, str]] | None:
+        """Apply autonomous terms: basal drift + elastic return to x* + coupling.
 
-            x_{t+1} = x_t − κ·(x_t − ε) + drift(value, set_point, tick) + W·φ(x_{t-τ})
+            x(t+1) = x(t) + λ(x,t) − κ·(x(t) − x*) + Σ_j W_j·(x_j(t−τ) − x_j*)
 
-        The drift term is β (lambda_rate, signed) shaped by the configured
-        policy: for "constant", it is exactly β per tick, so a negative β
-        lowers δ under inaction (restorative drive).
+        The drift term is λ (lambda_rate, signed) shaped by the configured
+        drift policy: for "constant", it is exactly λ per pulse, so a
+        negative λ lowers x under inaction (restorative need).
 
-        Returns a list of zone transition events if the dominant zone changed,
-        otherwise None. Each event is (event_type, zone_name) e.g.
-        ("zone.enter", "critical"), ("zone.exit", "nominal").
-        The caller (agent) is responsible for emitting these as events.
+        Emits on this drive's own event bus:
+            ZoneChanged        — algedonic band transition (with hysteresis)
+            PressureUpdated    — every pulse when observed variables exist
+            ViabilityBreached  — x crossed a viability limit
+            Coupled            — coupling term ≠ 0 moved this drive
+
+        Also returns legacy [(event_type, zone_name)] transitions for the
+        agent's dot-syntax re-emission (e.g. "zone.enter" → drive.hunger.<zone>).
         """
         old_zone = self._last_zone
         elastic = -self.kappa * (self.value - self.set_point)
@@ -199,14 +258,93 @@ class Drive:
         self._history.append((tick, self.value))
         if len(self._history) > 500:
             self._history = self._history[-500:]
-        new_zone = self.get_zone()
-        self._last_zone = new_zone
+
+        # Coupled event — the deviation of another need moved this one via W
+        if abs(coupling) > 1e-9:
+            self.emit(COUPLED, {
+                "drive":    self.name,
+                "amount":   round(coupling, 6),
+                "sources":  coupling_sources or {},
+                "tick":     tick,
+            })
+
+        # Viability limit — crossing is operational death (conjunctive)
+        lo_v, hi_v = self.viability
+        if self.value <= lo_v or self.value >= hi_v:
+            self.emit(VIABILITY_BREACHED, {
+                "drive":  self.name,
+                "value":  round(self.value, 4),
+                "limit":  lo_v if self.value <= lo_v else hi_v,
+                "side":   "low" if self.value <= lo_v else "high",
+                "tick":   tick,
+            })
+
+        # Observed variables: need pressure = max over valid sensors (§4.8)
+        if self.observed:
+            self._poll_observed(tick)
+
+        new_zone = self._zone_with_hysteresis()
+        memberships = self.zone_memberships()
         if old_zone is None:
-            # First update — emit initial zone entry
+            self._last_zone = new_zone
+            self._emit_zone_changed(None, new_zone, memberships, tick)
             return [("zone.enter", new_zone)]
         if old_zone != new_zone:
+            self._last_zone = new_zone
+            self._emit_zone_changed(old_zone, new_zone, memberships, tick)
             return [("zone.exit", old_zone), ("zone.enter", new_zone)]
         return None
+
+    def _zone_with_hysteresis(self) -> str:
+        """Dominant zone with α_in/α_out hysteresis (spec §3).
+
+        A new zone must reach membership ≥ α_in to be entered, AND the
+        incumbent is held while its membership stays above α_out — so a need
+        oscillating near a cut does not flicker events.
+        Defaults (α_in=0, α_out=1) = pure dominant-zone switching.
+        """
+        candidate = self.get_zone()
+        if self._last_zone is None or candidate == self._last_zone:
+            return candidate
+        m = self.zone_memberships()
+        if m.get(candidate, 0.0) >= self.alpha_in and m.get(self._last_zone, 0.0) <= self.alpha_out:
+            return candidate
+        return self._last_zone
+
+    def _emit_zone_changed(self, prev: Optional[str], new: str,
+                           memberships: dict[str, float], tick: int) -> None:
+        side = ("deficit" if "deficit" in new
+                else "superavit" if "superavit" in new else "equilibrium")
+        self.emit(ZONE_CHANGED, {
+            "drive":       self.name,
+            "prev_zone":   prev,
+            "zone":        new,
+            "side":        side,
+            "membership":  round(memberships.get(new, 0.0), 4),
+            "value":       round(self.value, 4),
+            "tick":        tick,
+        })
+
+    def _poll_observed(self, tick: int) -> None:
+        """Aggregate pressure from observed variables — max (non-fungible)."""
+        best_p, best_var = None, None
+        invalid: list[str] = []
+        for var in self.observed:
+            p = var.pressure(tick)
+            if p is None:
+                invalid.append(var.name)
+                continue
+            if best_p is None or p > best_p:
+                best_p, best_var = p, var.name
+        self.pressure = best_p
+        self.driving_variable = best_var
+        self.emit(PRESSURE_UPDATED, {
+            "drive":             self.name,
+            "pressure":          round(best_p, 4) if best_p is not None else None,
+            "driving_variable":  best_var,
+            "invalid_sensors":   invalid,
+            "tick":              tick,
+        })
 
     @staticmethod
     def _resolve_satiation(name: str):
@@ -228,9 +366,19 @@ class Drive:
         Linear (default): value -= amount * satiation_rate
         Saturating: diminishing returns for large amounts
         Sigmoid: strongest effect near set-point
+
+        Emits Satiated with the applied reduction (the quality signal g —
+        how much the action actually reduced the deviation).
         """
+        before = self.value
         reduction = self._satiation_fn(self.value, amount, self.satiation_rate)
         self.value = max(0.0, self.value - reduction)
+        self.emit(SATIATED, {
+            "drive":      self.name,
+            "amount":     round(amount, 4),
+            "reduction":  round(before - self.value, 4),
+            "value":      round(self.value, 4),
+        })
 
     def deplete(self, amount: float) -> None:
         """Raise δ by amount (resource consumed: tokens spent, error incurred)."""
@@ -264,8 +412,13 @@ class Drive:
             "urgency":     round(self.urgency, 4),
             "zone":        self.get_zone(),
             "memberships": {k: round(v, 4) for k, v in memberships.items()},
-            "stratum":     self.stratum.value,
+            "stratum":     self.stratum.value if self.stratum else None,
+            "category":    self.category,
         }
+        if self.observed:
+            result["pressure"]         = self.pressure
+            result["driving_variable"] = self.driving_variable
+            result["observed"]         = [v.to_dict() for v in self.observed]
         if self.subdrives:
             result["subdrives"] = [d.to_dict() for d in self.subdrives]
         return result
@@ -418,18 +571,20 @@ class Drives:
         return iter(self._drives.values())
 
     def update_all(self, tick: int = 0) -> dict[str, list[tuple[str, str]]]:
-        """Apply one tick of basal decay to all drives. Returns zone transitions per drive."""
+        """Apply one pulse of basal drift to all drives. Returns zone transitions."""
         transitions: dict[str, list[tuple[str, str]]] = {}
         for name, drive in self._drives.items():
-            coupling_term = self._compute_coupling(name, tick)
-            evts = drive.update(tick=tick, coupling=coupling_term)
+            coupling_term, sources = self._compute_coupling(name, tick)
+            evts = drive.update(tick=tick, coupling=coupling_term,
+                                coupling_sources=sources)
             if evts:
                 transitions[name] = evts
         return transitions
 
-    def _compute_coupling(self, target_name: str, tick: int) -> float:
-        """Compute Σ_j W_{j→target} · φ(x_j(t−τ)) for the coupling term."""
+    def _compute_coupling(self, target_name: str, tick: int) -> tuple[float, dict[str, float]]:
+        """Compute Σ_j W_{j→target} · (x_j(t−τ) − x_j*) and per-source contributions."""
         total = 0.0
+        sources: dict[str, float] = {}
         for src_name, weights in self._coupling.items():
             w = weights.get(target_name, 0.0)
             if w == 0.0:
@@ -442,10 +597,25 @@ class Drives:
                 x_delayed = src_drive._history[-self._coupling_tau - 1][1]
             else:
                 x_delayed = src_drive.value
-            # φ = sigmoid-squared (from AAH-A2 / Driveplexity)
-            phi = (x_delayed / (1.0 + abs(x_delayed))) ** 2
-            total += w * phi
-        return total
+            contribution = w * (x_delayed - src_drive.set_point)
+            sources[src_name] = round(contribution, 6)
+            total += contribution
+        return total, sources
+
+    def check_viability_minimum(self) -> list[str]:
+        """Spec §2.4: a minimally viable system needs ≥1 push and ≥1 pull need.
+
+        Returns warnings for categories that are missing. If all needs are pull,
+        the optimal policy is inaction — the healthy equilibrium must be a
+        sustainable *rhythm*, not a level.
+        """
+        cats = {d.category for d in self._drives.values()}
+        warnings = []
+        if "push" not in cats:
+            warnings.append("no 'push' need — nothing activates the agent")
+        if "pull" not in cats:
+            warnings.append("no 'pull' need — nothing inhibits consumption")
+        return warnings
 
     def to_dict(self) -> dict[str, dict]:
         """Export drive states for prompts / serialization."""

@@ -3,7 +3,7 @@
 Give agents motivations, not just capabilities.
 """
 
-__version__ = "0.1.4"
+__version__ = "0.2.0"
 __author__  = "Patricio Gerpe"
 __email__   = "pj.patriciojulian@gmail.com"
 
@@ -13,6 +13,11 @@ from .fuzzy  import compute_action_distribution, zone_memberships
 from .lifecycle import FIPAState, LifecycleManager
 from .actions import ActionKind, RegulatoryBudgets
 from .acl import ACLMessage, Performative, Mailbox
+from .events import (
+    EventEmitter, PULSE, ZONE_CHANGED, PRESSURE_UPDATED, SENSOR_INVALID,
+    VIABILITY_BREACHED, SATIATED, COUPLED,
+)
+from .observed import ObservedVariable, VariableKind, RateEstimator, load_contract
 from .sleep import ConsolidationWorker, WakeGuard, SleepConfig
 from .action_registry import ActionSpec, ActionSet
 from .llm import DeepSeekBackend, DryRunBackend, get_backend, LLMTelemetry, ModelConfig
@@ -39,6 +44,20 @@ __all__ = [
     "ACLMessage",
     "Performative",
     "Mailbox",
+    # Events (canonical EPA)
+    "EventEmitter",
+    "PULSE",
+    "ZONE_CHANGED",
+    "PRESSURE_UPDATED",
+    "SENSOR_INVALID",
+    "VIABILITY_BREACHED",
+    "SATIATED",
+    "COUPLED",
+    # Observed variables
+    "ObservedVariable",
+    "VariableKind",
+    "RateEstimator",
+    "load_contract",
     # Sleep
     "ConsolidationWorker",
     "WakeGuard",

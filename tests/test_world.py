@@ -65,7 +65,8 @@ class TestWorldFrame:
         assert len(frame.agents) == 3
         for ag in frame.agents:
             assert ag.name
-            assert ag.status in ("initiated", "active", "suspended", "critical", "terminated")
+            assert ag.status in ("initiated", "waiting", "active", "suspended",
+                                 "critical", "terminated")
             assert ag.delta is not None
             assert 0.0 <= ag.delta <= 1.0
 
