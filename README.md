@@ -46,12 +46,12 @@ Binsai is the 4th iteration of a research program that asks: *what makes agents 
 | 2019 | [AopifyJS](https://github.com/codewithpatelo/aopifyjs) | Springer CCIS | FIPA-based declarative agents; roadmap already included "homeostatic motives" |
 | 2026 | Pro-Action Γ (n=6) | ICML 2026 LatinX in AI Workshop | Full multi-subsystem operator; feasibility proven with 6 drives in iterated prisoner's dilemma, but 6 simultaneous drives proved hard to interpret — later work reduced to n=1 and n=2 |
 | 2026 | Pro-Action Γ Reduced (n=1) | NLP-School South America (poster) | Single-drive regulation in adversarial debate; emergent behavior, but regulation uncorrelated with collapse reduction → discovered the *satiety-signal problem* |
-| 2026 | Pro-Action Γ (n=2) | LatinX in AI Workshop @ NeurIPS 2026 (pending review) | Two drives with fuzzy criticality zones; identified the **redundancy argument**: if a scalar estimator exists, estimate-then-optimize beats regulation. Γ only makes sense where scalarization is impossible. |
+| 2026 | Pro-Action Γ (n=2) | arXiv (pending upload) | Two drives with fuzzy criticality zones; identified the **redundancy argument**: if a scalar estimator exists, estimate-then-optimize beats regulation. Γ only makes sense where scalarization is impossible. |
 | 2026 | **Binsai.PY** | RSLA 2026 | Parameterizable simulation substrate; metabolic drive demo; **antagonistic tensions** scenario |
 
 ### The framing shift: homeostasis is NOT competing with optimization
 
-The latest paper (Pro-Action Γ n=2, LatinX in AI Workshop @ NeurIPS 2026, pending review) found something uncomfortable but important: **when a scalar estimator of the state exists, estimating and optimizing dominates regulation.** This is not a defect of Γ — it's a structural fact. Regulation only makes sense where you *cannot* scalarize without choosing an arbitrary exchange rate between incommensurable objectives.
+The latest paper (Pro-Action Γ n=2, arXiv pending upload) found something uncomfortable but important: **when a scalar estimator of the state exists, estimating and optimizing dominates regulation.** This is not a defect of Γ — it's a structural fact. Regulation only makes sense where you *cannot* scalarize without choosing an arbitrary exchange rate between incommensurable objectives.
 
 This is where **agent operations** comes in: context budget, token cost, tool rate limits, latency, error rate, safety margin. These are **genuinely antagonistic** — you can't reduce "how many tokens is one less error worth?" to a single number without making an arbitrary choice. The goal is not to maximize a scalar reward but to **maintain multiple variables within viable ranges indefinitely.**
 
@@ -63,17 +63,17 @@ Modern agent frameworks make LLMs more capable by adding tools, memory, workflow
 
 ### The proposal: a bio-inspired regulatory substrate
 
-Binsai adds an internal regulatory layer: drives, needs, set-points, deficits, and adaptive intervention policies. It draws from cognitive neuroscience, cybernetics (Stafford Beer), and systemic materialism (Bunge-Romero).
+Binsai adds an internal regulatory layer: drives, set-points, deficits, and adaptive intervention policies. It draws from cognitive neuroscience and cybernetics (Stafford Beer).
 
 Binsai is **not** a competitor to LangGraph, AutoGen, or CrewAI. It is a regulatory substrate that gives them internal motivational dynamics — helping decide *why, when, and whether* an agent should act.
 
-Binsai is to the EPA what scikit-learn is to statistical models, and to self-regulating agents what NetLogo is to agent-based models — a library for research, not a production framework.
+Binsai is to the PAO what scikit-learn is to statistical models, and to self-regulating agents what NetLogo is to agent-based models — a library for research, not a production framework.
 
 ---
 
-## The Pro-Action Equation (EPA)
+## The Proaction Operator (PAO)
 
-Binsai implements the **EPA** — a state equation that models *viability*, not optimization. For each need `i`, on every pulse:
+Binsai implements the **PAO** (ES: *Ecuación Proacción*) — a state equation that models *viability*, not optimization. For each drive `i`, on every pulse:
 
 ```
 x_i(t+1) = x_i(t) + λ_i(x_i,t) − κ_i·(x_i(t) − x_i*) + u_i(t) + Σ_j W_ij·(x_j(t) − x_j*)
@@ -81,24 +81,24 @@ x_i(t+1) = x_i(t) + λ_i(x_i,t) − κ_i·(x_i(t) − x_i*) + u_i(t) + Σ_j W_ij
 
 | Term | Name | What it does |
 |---|---|---|
-| `x_i` | need level | the regulated state |
+| `x_i` | drive level | the regulated state |
 | `x_i*` | set-point | theoretical harmony point |
 | `λ_i` | basal drift | what happens when nothing happens (`basal_direction`: `"recover"`/`"decay"`, shaped by `drift`) |
 | `κ_i` | elastic spring | pulls toward set-point; keeps the system oscillating instead of freezing at equilibrium |
 | `u_i` | stimuli & actions | satiate (α>0) or perturb (α<0) the deviation |
-| `W_ij` | coupling | how much another need's deviation moves this one |
+| `W_ij` | coupling | how much another drive's deviation moves this one |
 
-There is **no terminal objective to maximize** — only ranges to sustain. Every need is either `push` (accumulates pressure → activates) or `pull` (protects a resource → inhibits, often by *doing* a preservation task). A minimally viable system needs at least one of each — if all needs are `pull`, the optimal policy is inaction.
+There is **no terminal objective to maximize** — only ranges to sustain. Every drive is either `push` (accumulates pressure → activates) or `pull` (protects a resource → inhibits, often by *doing* a preservation task). A minimally viable system needs at least one of each — if all drives are `pull`, the optimal policy is inaction.
 
 Full spec (ES): [`docs/EPA.md`](docs/EPA.md)
 
 ### Algedonic zones
 
-Each need carries seven fuzzy bands symmetric around its set-point (`critical_superavit … equilibrium … critical_deficit`), with parametrizable centers, widths and hysteresis (`alpha_in`/`alpha_out`). Crossing a band emits `ZoneChanged`; crossing a viability limit emits `ViabilityBreached` — operational death, conjunctive over all needs.
+Each drive carries seven fuzzy bands symmetric around its set-point (`critical_superavit … equilibrium … critical_deficit`), with parametrizable centers, widths and hysteresis (`alpha_in`/`alpha_out`). Crossing a band emits `ZoneChanged`; crossing a viability limit emits `ViabilityBreached` — operational death, conjunctive over all drives.
 
 ### Observed variables: level + pace
 
-A need doesn't look at its level in a vacuum — it observes operational variables, each contributing two signals: **level** (how close to the limit right now) and **pace** (how fast it moves toward the limit, vs. the sustainable rate *derived from the contract window* — never hand-picked).
+A drive doesn't look at its level in a vacuum — it observes operational variables, each contributing two signals: **level** (how close to the limit right now) and **pace** (how fast it moves toward the limit, vs. the sustainable rate *derived from the contract window* — never hand-picked).
 
 ```python
 from binsai import Drive, ObservedVariable
@@ -122,24 +122,24 @@ Four contract kinds: `budget` (consumed within a window), `floor` (must not drop
 
 Contract values live in versioned files, not code — see [`examples/viability-contract.json`](examples/viability-contract.json) + [`viability-contract.md`](examples/viability-contract.md), loaded via `binsai.load_contract()`.
 
-### Canonical events & FIPA subscription
+### Canonical events & subscriptions
 
-`Pulse`, `ZoneChanged`, `PressureUpdated`, `SensorInvalid`, `ViabilityBreached`, `Satiated`, `Coupled`. Needs and agents are all emitters:
+`Pulse`, `ZoneChanged`, `PressureUpdated`, `SensorInvalid`, `ViabilityBreached`, `Satiated`, `Coupled`. Drives and agents are all emitters, and any emitter can subscribe to another's events (the vocabulary borrows from FIPA's subscribe/cancel):
 
 ```python
-sub_id = drive_b.subscribe(drive_a, "ZoneChanged", handler)   # FIPA: subscribe
-drive_b.unsubscribe(sub_id)                                   # FIPA: cancel
+sub_id = drive_b.subscribe(drive_a, "ZoneChanged", handler)
+drive_b.unsubscribe(sub_id)
 
 agent.on("drive.hunger.critical_deficit", react)              # zone-specific
 agent.on("ZoneChanged", audit)                                # canonical
 ```
 
-### Lifecycle (FIPA)
+### Lifecycle
 
-`INITIATED → WAITING → ACTIVE → WAITING`, plus `SUSPENDED` and `TERMINATED`.
-`WAITING` is where the EPA decides; `ACTIVE` means a task is committed — no new decisions mid-task (avoids dithering), unless a red band or viability breach interrupts it (`interrupt_on_zone`, default `"critical"`). `TRANSIT` is reserved for future mobile agents.
+`INITIATED → WAITING → ACTIVE → WAITING`, plus `SUSPENDED` and `TERMINATED` — a lifecycle inspired by FIPA's agent-management states.
+`WAITING` is where the PAO decides; `ACTIVE` means a task is committed — no new decisions mid-task (avoids dithering), unless a red band or viability breach interrupts it (`interrupt_on_zone`, default `"critical"`). `TRANSIT` is reserved for future mobile agents.
 
-> **Breaking change in 0.2.0**: the state previously called `ACTIVE` is now `WAITING` (alive, idle, EPA decides); `ACTIVE` now means *executing a committed task*, matching FIPA nomenclature.
+> **Breaking change in 0.2.0**: the state previously called `ACTIVE` is now `WAITING` (alive, idle, PAO decides); `ACTIVE` now means *executing a committed task*.
 
 ---
 
@@ -303,12 +303,12 @@ All three examples are also available as a [Colab notebook](notebooks/binsai_qui
 This release is **MVP1 — Hungry Agent**. It implements the metabolic drive layer (Bunge S1) with:
 
 - **One active drive**: `metabolic` — regulates when the agent sleeps, acts fast, acts slow, defers, or goes idle.
-- **FIPA lifecycle**: `INITIATED → WAITING → ACTIVE → WAITING`, `WAITING ↔ SUSPENDED`, with causal transitions and red-band interrupts.
+- **Lifecycle**: `INITIATED → WAITING → ACTIVE → WAITING`, `WAITING ↔ SUSPENDED`, with causal transitions and red-band interrupts.
 - **Sleep/consolidation**: When metabolic deficit exceeds threshold, agent suspends; wakes when recovered AND queue is empty.
 - **State injection**: Regulatory state (δ, zone) is embedded in LLM prompts so the model reads its own "physiology".
 - **Symbolic pre-check**: A minimal rule-checker gates proactive actions based on drive zone and queue size.
 
-**What is NOT in MVP1**: The other 9 canonical drives do not yet affect behavior. The satiation-quality signal `g`, the action-skills catalog, and allostasis (anticipatory regulation with a world model) are open problems — see [`docs/EPA.md` §7](docs/EPA.md). Memory is native bounded working memory only (no LangGraph/LlamaIndex/Mem0 adapters yet). Neuro-symbolic layer is a rule-checker, not yet DeLP/AHP/TOPSIS.
+**What is NOT in MVP1**: The other 9 canonical drives do not yet affect behavior. The satiation-quality signal `g`, the action-skills catalog, and allostasis (anticipatory regulation with a world model) are open problems — see [`docs/EPA.md` §7](docs/EPA.md). Memory is native bounded working memory only (no LangGraph/LlamaIndex/Mem0 adapters yet). The symbolic pre-check is a rule-checker, not yet DeLP/AHP/TOPSIS.
 
 ---
 
@@ -329,10 +329,6 @@ Binsai ships with **10 canonical drives** as importable presets across 6 ontolog
 
 Each drive has set-points, decay rates, and **fuzzy sigmoid activation** (no hard thresholds).
 
-### Tri-process arbitration
-
-Inspired by Stanovich (Type 1/2/3) and our Γ paper: the agent decides between fast/slow/abstain/sleep routes based on its internal regulatory state, not just the input.
-
 ### State-regulated prompting
 
 The Γ paper introduces **RSVI** (Regulatory State Verbalized Interoception): numerical regulatory state is verbalized into the LLM prompt as decision context, without directly prescribing actions. MVP1 embeds drive state (δ, zone memberships) into the system prompt before every LLM call. The LLM reads its own "physiology" and self-regulates reasoning depth. Future MVPs will generalize this to the full Γ operator.
@@ -341,22 +337,18 @@ The Γ paper introduces **RSVI** (Regulatory State Verbalized Interoception): nu
 
 The brain distinguishes working, episodic, semantic, and procedural memory. Binsai MVP1 provides a native bounded working memory (7 items) with LLM-based consolidation during sleep. Future MVPs will add episodic/semantic backends and optional adapters.
 
-### Neuro-symbolic layer
-
-A minimal symbolic pre-commit check gates proactive actions based on drive zone and queue size (MVP1). Future MVPs will integrate defeasible argumentation (DeLP), multi-criteria aggregation (AHP), and ranking (TOPSIS).
-
 ---
 
 ## Demos (pixel-art)
 
-Each MVP ships with a visual demo using Phaser 3:
+Each MVP ships with a visual demo using Phaser 3. The demo is an **optional install** — `pip install binsai[web]` pulls in the web extras, so a library-only install stays lean:
 
 | MVP | Demo | What it shows |
 |-----|------|---------------|
-| 1 | Hungry Agents — `binsai run mvp1` | `δ_metabolic` (S1 Bunge) + dummy human + FIPA lifecycle + fuzzy sigmoid |
+| 1 | Hungry Agents — `binsai run mvp1` | `δ_metabolic` (S1 Bunge) + dummy human + lifecycle + fuzzy sigmoid |
 | 2 | Curious Agent (upcoming) | All S3 drives: `δ_safety`, `δ_epistemic`, `δ_coherence`, `δ_competence` |
 | 3 | Social Agent (upcoming) | S5 drives: `δ_relatedness`, `δ_autonomy` |
-| 4 | Reflective Agent (upcoming) | Tri-process arbitrator (Γ operator) |
+| 4 | Reflective Agent (upcoming) | Γ operator arbitration |
 | 5 | Operator Demos (upcoming) | Driveplexity + Γ running inside Binsai |
 | 6 | World Model + VSM (upcoming) | OntologicalGraph + recursion |
 
@@ -372,7 +364,7 @@ Each MVP ships with a visual demo using Phaser 3:
 
 - **Pro-Action Γ (n=6)** — ICML 2026 LatinX in AI Workshop: Full multi-subsystem regulatory operator; feasibility in iterated prisoner's dilemma
 - **Pro-Action Γ Reduced (n=1)** — NLP-School South America 2026 (poster): Single-drive regulation; discovered the satiety-signal problem
-- **Pro-Action Γ (n=2)** — LatinX in AI Workshop @ NeurIPS 2026 (pending review): Two drives + fuzzy criticality zones; identified the redundancy argument
+- **Pro-Action Γ (n=2)** — arXiv (pending upload): Two drives + fuzzy criticality zones; identified the redundancy argument
 - **AopifyJS** — Springer CCIS, 2019: FIPA-based declarative agent programming — the architectural precursor
 
 ---
@@ -421,7 +413,7 @@ This project evolves from:
 - [AopifyJS](https://github.com/codewithpatelo/aopifyjs) (2019, FIPA/declarative agents in Node.js) — Springer CCIS
 - **Pro-Action Γ (n=6)** — ICML 2026 LatinX in AI Workshop — full operator, feasibility
 - **Pro-Action Γ Reduced (n=1)** — NLP-School 2026 poster — satiety-signal problem
-- **Pro-Action Γ (n=2)** — LatinX in AI Workshop @ NeurIPS 2026 (pending review) — fuzzy zones + redundancy argument
+- **Pro-Action Γ (n=2)** — arXiv (pending upload) — fuzzy zones + redundancy argument
 - **Binsai.PY** — RSLA 2026 — parameterizable simulation substrate
 
 ---
@@ -438,14 +430,14 @@ Discord: [discord.gg/binsai](https://discord.gg/binsai) *(coming soon)*
 
 Binsai ships incrementally through six MVPs, each adding a Bunge ontological level:
 
-- [x] **MVP 1 — Hungry Agents**: `δ_metabolic` (S1), FIPA lifecycle, fuzzy sigmoid activation, sleep/consolidation, ablation mode
+- [x] **MVP 1 — Hungry Agents**: `δ_metabolic` (S1), agent lifecycle, fuzzy sigmoid activation, sleep/consolidation, ablation mode
 - [ ] **MVP 2 — Curious Agent**: `δ_safety`, `δ_epistemic`, `δ_coherence`, `δ_competence` (S3), episodic + semantic memory
-- [ ] **MVP 3 — Social Agent**: `δ_relatedness`, `δ_autonomy` (S5), FIPA communicative acts, multi-agent EventBus
-- [ ] **MVP 4 — Reflective Agent**: Tri-process arbitrator (Γ), SAM/HPA hormonal delays, metacognition, ask/wait/act/back-off
+- [ ] **MVP 3 — Social Agent**: `δ_relatedness`, `δ_autonomy` (S5), typed communicative acts, multi-agent EventBus
+- [ ] **MVP 4 — Reflective Agent**: Γ arbitration, SAM/HPA hormonal delays, metacognition, ask/wait/act/back-off
 - [ ] **MVP 5 — Operator Demos**: Driveplexity + Γ operators ported into Binsai, `δ_niche_construction`, `δ_artifact_integrity` (S4), `δ_meaning` (S6)
 - [ ] **MVP 6 — World Model + VSM**: OntologicalGraph (E, R, M, V, C), recursive VSM agents, neuro-symbolic wrappers (DeLP/AAF/AHP/TOPSIS)
 - [x] **v0.1.0**: PyPI release, MVP1 demo
-- [x] **v0.2.0**: EPA revision — `ObservedVariable` (level + pacing), push/pull categories, hysteresis, viability contracts, FIPA lifecycle (`WAITING`/`ACTIVE`), canonical events, expanded ACL
+- [x] **v0.2.0**: EPA revision — `ObservedVariable` (level + pacing), push/pull categories, hysteresis, viability contracts, agent lifecycle (`WAITING`/`ACTIVE`), canonical events, expanded ACL
 - [ ] **v1.0.0**: Zenodo DOI, full documentation, quality signal `g`, skill catalog schema
 
 ---
@@ -487,12 +479,12 @@ Binsai es la 4ta iteración de un programa de investigación que pregunta: *¿qu
 | 2019 | [AopifyJS](https://github.com/codewithpatelo/aopifyjs) | Springer CCIS | Agentes declarativos FIPA; el roadmap ya incluía "motivos homeostáticos" |
 | 2026 | Pro-Action Γ (n=6) | ICML 2026 LatinX in AI Workshop | Operador multi-subsistema completo; factibilidad con 6 drives en dilema del prisionero iterado, pero 6 drives simultáneos resultaron difíciles de interpretar — trabajos posteriores redujeron a n=1 y n=2 |
 | 2026 | Pro-Action Γ Reducido (n=1) | NLP-School Sudamérica (poster) | Regulación mono-drive en debate adversarial; comportamiento emergente, pero la regulación no correlacionó con la reducción de colapso → descubrimos el *problema de señal de saciedad* |
-| 2026 | Pro-Action Γ (n=2) | LatinX in AI Workshop @ NeurIPS 2026 (pendiente de revisión) | Dos drives con zonas fuzzy de criticidad; identificamos el **argumento de redundancia**: si existe un estimador escalar del estado, estimar-y-optimizar domina a la regulación. Γ solo tiene sentido donde la escalarización es imposible. |
+| 2026 | Pro-Action Γ (n=2) | arXiv (pendiente de subida) | Dos drives con zonas fuzzy de criticidad; identificamos el **argumento de redundancia**: si existe un estimador escalar del estado, estimar-y-optimizar domina a la regulación. Γ solo tiene sentido donde la escalarización es imposible. |
 | 2026 | **Binsai.PY** | RSLA 2026 | Sustrato de simulación parametrizable; demo de drive metabólico; escenario de **tensiones antagónicas** |
 
 ### El cambio de framing: la homeostasis NO compite con la optimización
 
-El último paper (Pro-Action Γ n=2, LatinX in AI Workshop @ NeurIPS 2026, pendiente de revisión) encontró algo incómodo pero importante: **cuando existe un estimador escalar del estado, estimar y optimizar domina a la regulación.** Esto no es un defecto de Γ — es un hecho estructural. La regulación solo tiene sentido donde *no se puede* escalarizar sin elegir un tipo de cambio arbitrario entre objetivos inconmensurables.
+El último paper (Pro-Action Γ n=2, arXiv pendiente de subida) encontró algo incómodo pero importante: **cuando existe un estimador escalar del estado, estimar y optimizar domina a la regulación.** Esto no es un defecto de Γ — es un hecho estructural. La regulación solo tiene sentido donde *no se puede* escalarizar sin elegir un tipo de cambio arbitrario entre objetivos inconmensurables.
 
 Ahí entra la **operación de agentes**: presupuesto de contexto, costo por token, rate limits de herramientas, latencia, tasa de error, margen de seguridad. Son **genuinamente antagónicos** — no se puede reducir "¿cuántos tokens vale evitar un error?" a un solo número sin elegir arbitrariamente. El objetivo no es maximizar una recompensa escalar sino **mantener múltiples variables dentro de rangos viables indefinidamente.**
 
@@ -506,7 +498,7 @@ Los frameworks modernos hacen a los LLMs más capaces agregando herramientas, me
 
 ### La propuesta: un sustrato regulatorio bio-inspirado
 
-Binsai agrega una capa regulatoria interna: drives, necesidades, set-points, déficits y políticas de intervención adaptativas. Se inspira en neurociencia cognitiva, cibernética (Stafford Beer) y materialismo sistémico (Bunge-Romero).
+Binsai agrega una capa regulatoria interna: drives, necesidades, set-points, déficits y políticas de intervención adaptativas. Se inspira en neurociencia cognitiva y cibernética (Stafford Beer).
 
 Binsai **no** compite con LangGraph, AutoGen o CrewAI. Es un sustrato regulatorio que les da dinámicas motivacionales internas — ayudando a decidir *por qué, cuándo y si* un agente debe actuar.
 
@@ -565,24 +557,24 @@ Cuatro tipos de contrato: `budget` (se consume dentro de una ventana), `floor` (
 
 Los valores del contrato viven en archivos versionados, no en el código — ver [`examples/viability-contract.json`](examples/viability-contract.json) + [`viability-contract.md`](examples/viability-contract.md), cargables con `binsai.load_contract()`.
 
-### Eventos canónicos y suscripción FIPA
+### Eventos canónicos y suscripciones
 
-`Pulse`, `ZoneChanged`, `PressureUpdated`, `SensorInvalid`, `ViabilityBreached`, `Satiated`, `Coupled`. Necesidades y agentes son emisores:
+`Pulse`, `ZoneChanged`, `PressureUpdated`, `SensorInvalid`, `ViabilityBreached`, `Satiated`, `Coupled`. Necesidades y agentes son emisores, y cualquier emisor puede suscribirse a los eventos de otro (el vocabulario toma el subscribe/cancel de FIPA):
 
 ```python
-sub_id = drive_b.subscribe(drive_a, "ZoneChanged", handler)   # FIPA: subscribe
-drive_b.unsubscribe(sub_id)                                   # FIPA: cancel
+sub_id = drive_b.subscribe(drive_a, "ZoneChanged", handler)
+drive_b.unsubscribe(sub_id)
 
 agent.on("drive.hunger.critical_deficit", reaccionar)         # por zona
 agent.on("ZoneChanged", auditar)                              # canónico
 ```
 
-### Ciclo de vida (FIPA)
+### Ciclo de vida
 
-`INITIATED → WAITING → ACTIVE → WAITING`, más `SUSPENDED` y `TERMINATED`.
+`INITIATED → WAITING → ACTIVE → WAITING`, más `SUSPENDED` y `TERMINATED` — un ciclo inspirado en los estados de gestión de agentes de FIPA.
 `WAITING` es donde la EPA decide; `ACTIVE` significa tarea comprometida — no se toman decisiones nuevas a mitad de tarea (evita el dithering), salvo que una banda roja o un cruce de viabilidad la interrumpa (`interrupt_on_zone`, default `"critical"`). `TRANSIT` queda reservado para agentes móviles.
 
-> **Cambio breaking en 0.2.0**: el estado que antes se llamaba `ACTIVE` ahora es `WAITING` (vivo, disponible, la EPA decide); `ACTIVE` ahora significa *ejecutando una tarea comprometida*, siguiendo la nomenclatura FIPA.
+> **Cambio breaking en 0.2.0**: el estado que antes se llamaba `ACTIVE` ahora es `WAITING` (vivo, disponible, la EPA decide); `ACTIVE` ahora significa *ejecutando una tarea comprometida*.
 
 ---
 
@@ -746,12 +738,12 @@ Los tres ejemplos también están disponibles como [notebook de Colab](notebooks
 Este release es **MVP1 — Agente Hambriento**. Implementa la capa de drive metabólico (Bunge S1):
 
 - **Un drive activo**: `metabolic` — regula cuándo el agente duerme, actúa rápido, lento, difiere o está inactivo.
-- **Ciclo FIPA**: `INITIATED → WAITING → ACTIVE → WAITING`, `WAITING ↔ SUSPENDED`, con transiciones causales e interrupción por banda roja.
+- **Ciclo de vida**: `INITIATED → WAITING → ACTIVE → WAITING`, `WAITING ↔ SUSPENDED`, con transiciones causales e interrupción por banda roja.
 - **Sueño/consolidación**: Cuando el déficit metabólico excede el umbral, el agente se suspende; despierta cuando se recupera Y la cola está vacía.
 - **Inyección de estado**: El estado regulatorio (δ, zona) se incrusta en los prompts del LLM para que el modelo lea su propia "fisiología".
 - **Pre-check simbólico**: Un verificador de reglas mínimo controla acciones proactivas según zona y tamaño de cola.
 
-**Qué NO está en MVP1**: Los otros 9 drives canónicos no afectan el comportamiento. La señal de calidad `g`, el catálogo de acciones como skills y la alostasis (regulación anticipatoria con modelo del mundo) son problemas abiertos — ver [`docs/EPA.md` §7](docs/EPA.md). La memoria es nativa de trabajo limitada (sin adapters para LangGraph/LlamaIndex/Mem0). La capa neuro-simbólica es un verificador de reglas, no DeLP/AHP/TOPSIS todavía.
+**Qué NO está en MVP1**: Los otros 9 drives canónicos no afectan el comportamiento. La señal de calidad `g`, el catálogo de acciones como skills y la alostasis (regulación anticipatoria con modelo del mundo) son problemas abiertos — ver [`docs/EPA.md` §7](docs/EPA.md). La memoria es nativa de trabajo limitada (sin adapters para LangGraph/LlamaIndex/Mem0). El pre-check simbólico es un verificador de reglas, no DeLP/AHP/TOPSIS todavía.
 
 ---
 
@@ -772,10 +764,6 @@ Binsai incluye **10 drives canónicos** como presets importables en 6 niveles on
 
 Cada drive tiene set-points, tasas de decaimiento configurables y **activación sigmoide difusa** (sin umbrales duros).
 
-### Arbitraje tri-proceso
-
-Inspirado en Stanovich (Tipo 1/2/3) y nuestro paper de Γ: el agente decide entre rutas rápido/lento/abstenerse/dormir basado en su estado regulatorio interno, no solo en el input.
-
 ### Prompting regulado por estado
 
 El paper de Γ introduce **RSVI** (Regulatory State Verbalized Interoception): el estado regulatorio numérico se verbaliza en el prompt del LLM como contexto de decisión, sin prescribir acciones directamente. MVP1 incrusta el estado del drive (δ, membresías de zona) en el system prompt antes de cada llamada al LLM.
@@ -784,22 +772,18 @@ El paper de Γ introduce **RSVI** (Regulatory State Verbalized Interoception): e
 
 El cerebro distingue memoria de trabajo, episódica, semántica y procedural. Binsai MVP1 provee memoria de trabajo nativa limitada (7 ítems) con consolidación basada en LLM durante el sueño.
 
-### Capa neuro-simbólica
-
-Un pre-commit simbólico mínimo controla acciones proactivas según zona del drive y tamaño de cola (MVP1). Futuros MVPs integrarán argumentación rebatible (DeLP), agregación multicriterio (AHP) y ranking (TOPSIS).
-
 ---
 
 ## Demos (pixel-art)
 
-Cada MVP incluye una demo visual con Phaser 3:
+Cada MVP incluye una demo visual con Phaser 3. El demo es una **instalación opcional** — `pip install binsai[web]` trae los extras web, así una instalación solo-librería queda liviana:
 
 | MVP | Demo | Qué muestra |
 |-----|------|-------------|
-| 1 | Hungry Agents — `binsai run mvp1` | `δ_metabolic` (S1 Bunge) + dummy human + ciclo FIPA + sigmoide difusa |
+| 1 | Hungry Agents — `binsai run mvp1` | `δ_metabolic` (S1 Bunge) + dummy human + ciclo de vida + sigmoide difusa |
 | 2 | Curious Agent (próximamente) | Drives S3: `δ_safety`, `δ_epistemic`, `δ_coherence`, `δ_competence` |
 | 3 | Social Agent (próximamente) | Drives S5: `δ_relatedness`, `δ_autonomy` |
-| 4 | Reflective Agent (próximamente) | Árbitro tri-proceso (Γ) |
+| 4 | Reflective Agent (próximamente) | Arbitraje Γ |
 | 5 | Operator Demos (próximamente) | Γ corriendo dentro de Binsai |
 | 6 | World Model + VSM (próximamente) | Grafo ontológico + recursión |
 
@@ -809,7 +793,7 @@ Cada MVP incluye una demo visual con Phaser 3:
 
 - **Pro-Action Γ (n=6)** — ICML 2026 LatinX in AI Workshop: Operador regulatorio multi-subsistema completo; factibilidad en dilema del prisionero iterado
 - **Pro-Action Γ Reducido (n=1)** — NLP-School Sudamérica 2026 (poster): Regulación mono-drive; descubrimiento del problema de señal de saciedad
-- **Pro-Action Γ (n=2)** — LatinX in AI Workshop @ NeurIPS 2026 (pendiente de revisión): Dos drives + zonas fuzzy de criticidad; identificado el argumento de redundancia
+- **Pro-Action Γ (n=2)** — arXiv (pendiente de subida): Dos drives + zonas fuzzy de criticidad; identificado el argumento de redundancia
 - **AopifyJS** — Springer CCIS, 2019: Programación declarativa de agentes basada en FIPA — el precursor arquitectónico
 
 ---
@@ -856,7 +840,7 @@ Este proyecto evoluciona de:
 - [AopifyJS](https://github.com/codewithpatelo/aopifyjs) (2019, agentes declarativos FIPA en Node.js) — Springer CCIS
 - **Pro-Action Γ (n=6)** — ICML 2026 LatinX in AI Workshop — operador completo, factibilidad
 - **Pro-Action Γ Reducido (n=1)** — NLP-School 2026 poster — problema de señal de saciedad
-- **Pro-Action Γ (n=2)** — LatinX in AI Workshop @ NeurIPS 2026 (pendiente de revisión) — zonas fuzzy + argumento de redundancia
+- **Pro-Action Γ (n=2)** — arXiv (pendiente de subida) — zonas fuzzy + argumento de redundancia
 - **Binsai.PY** — RSLA 2026 — sustrato de simulación parametrizable
 
 ---
@@ -871,14 +855,14 @@ Ver [CONTRIBUTING.md](CONTRIBUTING.md)
 
 Binsai se publica incrementalmente en seis MVPs, cada uno agregando un nivel ontológico de Bunge:
 
-- [x] **MVP 1 — Agentes Hambrientos**: `δ_metabolic` (S1), ciclo FIPA, activación sigmoide difusa, sueño/consolidación, modo ablación
+- [x] **MVP 1 — Agentes Hambrientos**: `δ_metabolic` (S1), ciclo de vida, activación sigmoide difusa, sueño/consolidación, modo ablación
 - [ ] **MVP 2 — Agente Curioso**: `δ_safety`, `δ_epistemic`, `δ_coherence`, `δ_competence` (S3), memoria episódica + semántica
-- [ ] **MVP 3 — Agente Social**: `δ_relatedness`, `δ_autonomy` (S5), actos comunicativos FIPA, EventBus multi-agente
-- [ ] **MVP 4 — Agente Reflexivo**: Árbitro tri-proceso (Γ), demoras hormonales SAM/HPA, metacognición
+- [ ] **MVP 3 — Agente Social**: `δ_relatedness`, `δ_autonomy` (S5), actos comunicativos tipados, EventBus multi-agente
+- [ ] **MVP 4 — Agente Reflexivo**: Arbitraje Γ, demoras hormonales SAM/HPA, metacognición
 - [ ] **MVP 5 — Demos de Operadores**: Γ corriendo dentro de Binsai, `δ_niche_construction`, `δ_artifact_integrity` (S4), `δ_meaning` (S6)
 - [ ] **MVP 6 — Modelo de Mundo + VSM**: Grafo ontológico (E, R, M, V, C), agentes VSM recursivos, wrappers neuro-simbólicos (DeLP/AAF/AHP/TOPSIS)
 - [x] **v0.1.0**: release PyPI, demo MVP1
-- [x] **v0.2.0**: revisión EPA — `ObservedVariable` (nivel + ritmo), categorías push/pull, histéresis, contratos de viabilidad, ciclo FIPA (`WAITING`/`ACTIVE`), eventos canónicos, ACL extendido
+- [x] **v0.2.0**: revisión EPA — `ObservedVariable` (nivel + ritmo), categorías push/pull, histéresis, contratos de viabilidad, ciclo de vida (`WAITING`/`ACTIVE`), eventos canónicos, ACL extendido
 - [ ] **v1.0.0**: DOI Zenodo, documentación completa, señal de calidad `g`, esquema de skills
 
 ---
