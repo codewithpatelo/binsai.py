@@ -8,6 +8,7 @@ Canonical events (EPA spec §5.1):
     VIABILITY_BREACHED — a drive crossed its viability limit (operational death)
     SATIATED           — an action reduced the drive's deviation (quality signal g)
     COUPLED            — this drive was moved by another drive's deviation via W
+    TENSION_RELEASED   — the pulsatile spring discharged accumulated tension σ
 
 Subscription model (FIPA ACL subscribe/cancel):
     sub_id = emitter.on("ZoneChanged", handler)
@@ -32,6 +33,7 @@ SENSOR_INVALID     = "SensorInvalid"
 VIABILITY_BREACHED = "ViabilityBreached"
 SATIATED           = "Satiated"
 COUPLED            = "Coupled"
+TENSION_RELEASED   = "TensionReleased"
 
 
 @dataclass

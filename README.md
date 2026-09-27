@@ -33,7 +33,7 @@
 
 Instead of only asking what an agent can do, Binsai helps decide **why, when, and whether it should act**.
 
-**Current version**: 0.2.1 · **Status**: MVP 1 "Hungry Agents" ✅ — `binsai run mvp1 --no-llm`
+**Current version**: 0.3.0 · **Status**: MVP 1 "Hungry Agents" ✅ — `binsai run mvp1 --no-llm`
 
 ---
 
@@ -76,7 +76,7 @@ Binsai is to the PAO what scikit-learn is to statistical models, and to self-reg
 Binsai implements the **PAO** (ES: *Ecuación Proacción*) — a state equation that models *viability*, not optimization. For each drive `i`, on every pulse:
 
 ```
-x_i(t+1) = x_i(t) + λ_i(x_i,t) − κ_i·(x_i(t) − x_i*) + u_i(t) + Σ_j W_ij·(x_j(t) − x_j*)
+x_i(t+1) = x_i(t) + λ_i(x_i,t) − r_i(t) + u_i(t) + Σ_j W_ij·(x_j(t) − x_j*)
 ```
 
 | Term | Name | What it does |
@@ -84,7 +84,7 @@ x_i(t+1) = x_i(t) + λ_i(x_i,t) − κ_i·(x_i(t) − x_i*) + u_i(t) + Σ_j W_ij
 | `x_i` | drive level | the regulated state |
 | `x_i*` | set-point | theoretical harmony point |
 | `λ_i` | basal drift | what happens when nothing happens (`basal_direction`: `"recover"`/`"decay"`, shaped by `drift`) |
-| `κ_i` | elastic spring | pulls toward set-point; keeps the system oscillating instead of freezing at equilibrium |
+| `r_i` | elastic spring | tension charged by displacement, released in pulses (`spring="pulsatile"` default: σ integrates, discharges past `spring_threshold`; `"linear"` is the legacy damper — see `docs/SPRING.md`) |
 | `u_i` | stimuli & actions | satiate (α>0) or perturb (α<0) the deviation |
 | `W_ij` | coupling | how much another drive's deviation moves this one |
 
@@ -477,7 +477,7 @@ Copyright (C) 2026 Patricio Gerpe
 
 En lugar de preguntar solo qué puede hacer un agente, Binsai ayuda a decidir **por qué, cuándo y si debe actuar**.
 
-**Versión actual**: 0.2.1 · **Estado**: MVP 1 "Agentes Hambrientos" ✅ — `binsai run mvp1 --no-llm`
+**Versión actual**: 0.3.0 · **Estado**: MVP 1 "Agentes Hambrientos" ✅ — `binsai run mvp1 --no-llm`
 
 ---
 
@@ -522,7 +522,7 @@ Binsai es a la EPA lo que scikit-learn es a los modelos estadísticos, y a los a
 Binsai implementa la **EPA** — una ecuación de estados que modela *viabilidad*, no optimización. Para cada necesidad `i`, en cada pulso:
 
 ```
-x_i(t+1) = x_i(t) + λ_i(x_i,t) − κ_i·(x_i(t) − x_i*) + u_i(t) + Σ_j W_ij·(x_j(t) − x_j*)
+x_i(t+1) = x_i(t) + λ_i(x_i,t) − r_i(t) + u_i(t) + Σ_j W_ij·(x_j(t) − x_j*)
 ```
 
 | Término | Nombre | Qué hace |
@@ -530,7 +530,7 @@ x_i(t+1) = x_i(t) + λ_i(x_i,t) − κ_i·(x_i(t) − x_i*) + u_i(t) + Σ_j W_ij
 | `x_i` | nivel de la necesidad | el estado que se regula |
 | `x_i*` | punto de equilibrio | el punto teórico de armonía |
 | `λ_i` | deriva basal | qué le pasa a la necesidad si no ocurre nada (`basal_direction`: `"recover"`/`"decay"`, forma por `drift`) |
-| `κ_i` | resorte elástico | tira hacia el equilibrio; mantiene la oscilación viva en vez de congelarse en el set-point |
+| `r_i` | resorte elástico | tensión que el desplazamiento carga y la regulación libera en pulsos (`spring="pulsatile"` default: σ integra, descarga al pasar `spring_threshold`; `"linear"` es el amortiguador legacy — ver `docs/SPRING.md`) |
 | `u_i` | estímulos y acciones | sacia (α>0) o perturba (α<0) el desvío |
 | `W_ij` | acoplamiento | cuánto el desvío de otra necesidad mueve a esta |
 

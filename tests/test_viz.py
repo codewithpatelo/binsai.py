@@ -43,6 +43,19 @@ class TestTimelineSvg:
         svg = timeline_svg(d, ghost_ticks=30)
         assert "stroke-dasharray=\"2 5\"" in svg  # ghost polyline
 
+    def test_ghost_matches_spring_policy(self):
+        from binsai.viz import _ghost
+        # linear damper: converges to the cancellation point x*+λ/κ = 0.40
+        lin = make_trajectory(beta=0.005)
+        lin.spring = "linear"
+        proj = _ghost(lin, 200)
+        assert abs(proj[-1] - lin.resting_level) < 0.02
+        # pulsatile default: sawtooth — the projection must oscillate
+        pul = make_trajectory(beta=0.005)
+        gp = _ghost(pul, 120)
+        diffs = [gp[i + 1] - gp[i] for i in range(len(gp) - 1)]
+        assert any(d < -1e-6 for d in diffs) and any(d > 1e-6 for d in diffs)
+
     def test_events_rug_uses_drive_events(self):
         d = make_trajectory()
         d.record_event(5, "sat")
@@ -59,10 +72,11 @@ class TestTimelineSvg:
     def test_record_event_public_api(self):
         d = make_trajectory()
         d.record_event(2, "shock")
-        assert d.events == [(2, "shock")]
+        assert (2, "shock") in d.events  # pulsatile releases may also be logged
         # read-only copy
+        n = len(d.events)
         d.events.clear()
-        assert d.events == [(2, "shock")]
+        assert len(d.events) == n
 
     def test_empty_history_does_not_crash(self):
         d = Drive(name="empty", value=0.30, set_point=0.30)

@@ -43,7 +43,7 @@ from typing import Callable, Optional
 
 from .events import (
     EventEmitter, ZONE_CHANGED, PRESSURE_UPDATED, SATIATED, COUPLED,
-    VIABILITY_BREACHED,
+    VIABILITY_BREACHED, TENSION_RELEASED,
 )
 
 
@@ -70,9 +70,13 @@ class Drive(EventEmitter):
     """A need with bilateral set-point regulation (EPA state equation).
 
     Discrete-time dynamics (one pulse):
-        x(t+1) = x(t) + λ(x,t) − κ·(x(t) − x*) + u(t) + Σ_j W_j·(x_j(t−τ) − x_j*)
+        x(t+1) = x(t) + λ(x,t) − r(t) + u(t) + Σ_j W_j·(x_j(t−τ) − x_j*)
 
-    update() applies the autonomous terms (basal drift + elastic return + coupling).
+    where r(t) is the spring term — κ(x−x*) under spring="linear", or a
+    tension-release pulse (σ charges with displacement, discharges past θ)
+    under spring="pulsatile" (default; see docs/SPRING.md).
+
+    update() applies the autonomous terms (basal drift + spring + coupling).
     satiate() / deplete() apply the action-feedback term u.
 
     Attributes:
@@ -82,7 +86,9 @@ class Drive(EventEmitter):
         stratum:         Ontological level (Bunge-Romero) — optional taxonomy
         value:           Current x ∈ [0, 1]  (high = deficit)
         set_point:       Homeostatic target x*
-        kappa:           Elastic return rate κ; larger = stiffer thermostat
+        kappa:           Spring coefficient κ. Under "linear" it is the elastic
+                         return rate; under "pulsatile" it is the tension
+                         charge rate (σ += κ·d·e^(−|d|/w) per pulse)
         lambda_rate:     Basal flux λ per pulse, SIGNED (or via basal_direction)
         basal_direction: Optional semantic alias: "recover" forces λ>0 (the need
                          builds under inaction, e.g. hunger), "decay" forces
@@ -113,6 +119,10 @@ class Drive(EventEmitter):
     drift_period:   int   = 120        # circadian period in ticks
     drift_k:        float = 1.0        # exponential drift coefficient
     satiation:      str   = "linear"   # "linear" | "saturating" | "sigmoid" | callable
+    spring:         str   = "pulsatile"  # "pulsatile" | "linear" | callable
+    spring_threshold: float = 0.10     # θ — tension σ that triggers a release pulse
+    spring_release: float = 1.0        # ρ — fraction of σ discharged per pulse
+    spring_reach:   float = 0.30       # w — grip peaks at |d|=w then decays (inf = no escape)
     zones:          Optional[list[ZoneSpec]] = None  # None = default 7 algedonic bands
     alpha_in:       float = 0.0        # hysteresis: μ needed to enter a new zone
     alpha_out:      float = 1.0        # hysteresis: exit old zone when μ ≤ this
@@ -122,6 +132,7 @@ class Drive(EventEmitter):
     # Internal: not part of public API
     _history: list[tuple[int, float]] = field(default_factory=list, repr=False)
     _events:  list[tuple[int, str]]  = field(default_factory=list, repr=False)
+    _tension: float = field(default=0.0, repr=False)  # pulsatile spring tension σ
 
     def __post_init__(self) -> None:
         self._init_bus()
@@ -147,6 +158,19 @@ class Drive(EventEmitter):
             self._drift_fn = self._resolve_drift(self.drift)
         else:
             self._drift_fn = self.drift
+        # Resolve spring policy: "linear" (legacy damper) or "pulsatile"
+        # (tension σ integrates displacement, discharges past threshold θ)
+        if isinstance(self.spring, str):
+            if self.spring not in ("linear", "pulsatile"):
+                raise ValueError(
+                    f"spring must be 'pulsatile', 'linear' or a callable, got {self.spring!r}"
+                )
+        if not (0.0 < self.spring_release <= 1.0):
+            raise ValueError("spring_release must be in (0, 1]")
+        if self.spring_reach is not None and not (
+            self.spring_reach > 0 or self.spring_reach == float("inf")
+        ):
+            raise ValueError("spring_reach must be > 0 (or inf for unbounded grip)")
         # Resolve satiation to callable if it's a named policy
         if isinstance(self.satiation, str):
             self._satiation_fn = self._resolve_satiation(self.satiation)
@@ -169,8 +193,7 @@ class Drive(EventEmitter):
             ]
         self._last_zone = None  # Force first update() to emit zone.enter
 
-    @staticmethod
-    def _resolve_drift(name: str):
+    def _resolve_drift(self, name: str):
         import math
         if name == "constant":
             return lambda v, s, t, lam, k: lam
@@ -179,11 +202,50 @@ class Drive(EventEmitter):
         elif name == "exponential":
             return lambda v, s, t, lam, k: lam * math.exp(k * max(0.0, v - s))
         elif name == "circadian":
-            # oscillatory: peaks during "day", trough during "night"
-            period = 120  # default, overridden by drift_period
+            period = self.drift_period
             return lambda v, s, t, lam, k: lam * (1.0 + math.sin(2 * math.pi * t / period)) / 2.0
         else:
             raise ValueError(f"Unknown drift policy: {name!r}. Use 'constant', 'linear', 'exponential', 'circadian', or a callable.")
+
+    def _spring_charge(self, deviation: float) -> float:
+        """Pulsatile tension charge rate: κ·d·e^(−|d|/w) — the "magnet" curve.
+
+        Grip peaks at |d| = w (max κw/e) then decays — the spring has finite
+        reach, so drift can escape it past that point. w = inf disables the
+        decay (plain κ·d charge → bounded oscillating ceiling).
+        """
+        import math
+        d = deviation
+        if self.spring_reach is not None and self.spring_reach != float("inf"):
+            d *= math.exp(-abs(d) / self.spring_reach)
+        return self.kappa * d
+
+    def _spring_step(self, tick: int) -> float:
+        """Restoring term for this pulse — depends on the spring policy.
+
+        "linear":    continuous damper −κ(x−x*) (legacy behaviour)
+        "pulsatile": charge tension σ, discharge ρ·σ when |σ| ≥ θ
+        callable:    user-defined f(deviation) → restoring delta
+        """
+        d = self.value - self.set_point
+        if callable(self.spring):
+            return self.spring(d)
+        if self.spring == "linear":
+            return -self.kappa * d
+        # pulsatile: integrate displacement into tension, release in pulses
+        self._tension += self._spring_charge(d)
+        if abs(self._tension) >= self.spring_threshold:
+            release = self.spring_release * self._tension
+            self._tension -= release
+            self.emit(TENSION_RELEASED, {
+                "drive":   self.name,
+                "tension": round(release, 6),
+                "value":   round(self.value, 4),
+                "tick":    tick,
+            })
+            self.record_event(tick, "release")
+            return -release
+        return 0.0
 
     @property
     def deviation(self) -> float:
@@ -199,13 +261,26 @@ class Drive(EventEmitter):
     def resting_level(self) -> float:
         """Where the drive settles under inaction (basal flux vs spring).
 
-        With spring (κ > 0): x_rest = ε + β/κ — the level at which the
-        drift β and the elastic return −κ(x − ε) cancel. Unclipped; it may
-        fall outside [0,1], in which case the drive rests against a bound.
-
-        Without spring (κ = 0): pure integrator → the boundary toward which
-        β points (1.0 if β > 0, 0.0 if β < 0, current value if β = 0).
+        "linear" spring:  x_rest = x* + λ/κ — damper cancellation point.
+        "pulsatile" spring: the tension cycle nets +λ per release interval;
+        the oscillating ceiling sits ~x* + λ/(κ·ρ) when the grip can hold —
+        i.e. λ ≤ κρw/e (the magnet's max charge rate). If λ exceeds the grip,
+        the drive escapes toward the viability bound.
         """
+        if callable(self.spring):
+            return self.value  # user-defined spring: unknowable a priori
+        if self.spring == "pulsatile":
+            import math
+            if self.lambda_rate == 0:
+                return self.set_point  # releases only pull toward x*
+            w = self.spring_reach
+            grip = (self.kappa * w / math.e) if (w and w != float("inf")) else float("inf")
+            lam = abs(self.lambda_rate)
+            bound = 1.0 if self.lambda_rate > 0 else 0.0
+            if lam > grip * self.spring_release:
+                return bound  # drift escapes the spring — viability bound
+            ceiling = self.set_point + self.lambda_rate / (self.kappa * self.spring_release)
+            return max(0.0, min(1.0, ceiling))
         if self.kappa > 0:
             return self.set_point + self.lambda_rate / self.kappa
         if self.lambda_rate > 0:
@@ -252,9 +327,9 @@ class Drive(EventEmitter):
         agent's dot-syntax re-emission (e.g. "zone.enter" → drive.hunger.<zone>).
         """
         old_zone = self._last_zone
-        elastic = -self.kappa * (self.value - self.set_point)
+        spring_delta = self._spring_step(tick)
         drift_amount = self._drift_fn(self.value, self.set_point, tick, self.lambda_rate, self.drift_k)
-        self.value = max(0.0, min(1.0, self.value + elastic + drift_amount + coupling))
+        self.value = max(0.0, min(1.0, self.value + spring_delta + drift_amount + coupling))
         self._history.append((tick, self.value))
         if len(self._history) > 500:
             self._history = self._history[-500:]

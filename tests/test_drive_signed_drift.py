@@ -13,6 +13,7 @@ def make_drive(**kw) -> Drive:
         set_point=0.30,
         kappa=0.05,
         lambda_rate=0.005,
+        spring="linear",   # these tests pin the legacy damper semantics
     )
     defaults.update(kw)
     return Drive(**defaults)

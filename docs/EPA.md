@@ -27,7 +27,7 @@ No es una ecuación de optimización ni de maximización. No hay objetivo termin
 Para cada necesidad i, en cada pulso:
 
 ```
-x_i(t+1) = x_i(t) + λ_i(x_i, t) − κ_i · (x_i(t) − x_i*) + u_i(t) + Σ_j W_ij · (x_j(t) − x_j*)
+x_i(t+1) = x_i(t) + λ_i(x_i, t) − r_i(t) + u_i(t) + Σ_j W_ij · (x_j(t) − x_j*)
 ```
 
 | Término | Nombre | Qué hace |
@@ -35,7 +35,7 @@ x_i(t+1) = x_i(t) + λ_i(x_i, t) − κ_i · (x_i(t) − x_i*) + u_i(t) + Σ_j W
 | `x_i` | nivel de la necesidad | el estado que se regula |
 | `x_i*` | punto de equilibrio (set-point) | el punto teórico de armonía |
 | `λ_i` | deriva basal | qué le pasa a la necesidad si no ocurre nada |
-| `κ_i` | resorte elástico | tira hacia el punto de equilibrio y permite la oscilación |
+| `r_i` | resorte elástico | tensión que el desplazamiento carga y la regulación libera |
 | `u_i` | estímulos y acciones | su efecto sobre la necesidad: sacia (α > 0, reduce el desvío) o perturba (α < 0, lo aumenta) |
 | `W_ij` | acoplamiento | cuánto el desvío de otra necesidad mueve a esta |
 
@@ -45,12 +45,17 @@ El pulso (tick, heartbeat) actualiza la EPA siempre, haya o no estímulos, haya 
 
 **Punto de equilibrio (`set_point`).** El punto teórico donde hay equilibrio perfecto. Ahí el desvío es cero y, con él, la probabilidad de activación o inhibición.
 
-**Deriva basal (`lambda`).** El movimiento de actualización de la necesidad, que ocurre en cada pulso con independencia de lo que pase afuera. Es el mecanismo por el cual un sistema viable se activa o se inhibe cuando corresponde.
+**Deriva basal (`lambda`).** El movimiento de actualización de la necesidad, que ocurre en cada pulso con independencia de lo que pase afuera. Es el mecanismo por el cual un sistema viable se activa o se inhibe cuando corresponde. A la situación en que el agente no actúa ni recibe estímulos y la dinámica queda librada solo a la deriva y el resorte se la llama **negligencia basal** — bajo negligencia basal sostenida, una necesidad push con deriva suficiente debería escalar hasta la viabilidad, no estancarse (ver §2.3 resorte y `docs/SPRING.md`).
 
 - Subhiperparámetro `basal_direction`: `decay` (la necesidad decae) o `recover` (se recupera).
 - Subhiperparámetro `basal_fn`: la forma de esa deriva. Por defecto, decaimiento lineal.
 
-**Resorte elástico (`kappa`).** Permite la oscilación hacia el punto de equilibrio e impide que el equilibrio perfecto sea alcanzable. Sin κ, el sistema puede sentarse exactamente en el set-point, y ahí ya no hay movimiento: la probabilidad de activación o inhibición cae a cero y el agente queda inerte.
+**Resorte elástico (`kappa` + `spring`).** Atrae el nivel hacia el set-point sin llegar al equilibrio perfecto — acumula tensión y la libera en pulsos. Sin resorte el sistema puede sentarse exactamente en el set-point y quedar inerte.
+
+- `spring="pulsatile"` (default): el desplazamiento carga tensión `σ` a razón `κ·d·e^(−|d|/w)` por pulso; cuando `|σ| ≥ θ` el resorte libera un pulso `ρ·σ` que empuja el nivel de vuelta. La deriva siempre actúa, el resorte solo muerde en pulsos — la trayectoria son ondas sobre la tendencia basal. `spring_reach` (w) es el alcance del resorte: más allá de él el agarre decae y la negligencia sostenida puede escalar hasta la viabilidad. `w=inf` da una mesa oscilante acotada. Subhiperparámetros: `spring_threshold` (θ) y `spring_release` (ρ).
+- `spring="linear"`: amortiguador continuo `r = κ·(x−x*)` (comportamiento ≤0.2.x). Acota la desviación en `λ/κ` — útil para procesos que saturan de verdad y como baseline de ablación.
+
+Ver `docs/SPRING.md` para el análisis completo y los regímenes dinámicos.
 
 **Acoplamiento (`W`).** Matriz N×N. El acoplamiento entre necesidades de un sistema viable se da por W.
 

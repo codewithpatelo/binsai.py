@@ -5,8 +5,9 @@ timeline" artifact: stacked strips with algedonic zone bands, the set-point
 (dashed), the basal-drift arrow at the tip of the line (up = recover,
 down = decay), the elastic spring κ as a vertical tick on the set-point,
 viability limits (thick red dashes) with translucent "death zones" beyond
-them, an optional event rug, and an optional ghost projection of what
-inaction would do next.
+them, an optional event rug, and an optional ghost projection of the
+autonomous dynamics under inaction (basal drift + elastic return — it
+converges to the resting level x* + λ/κ).
 
 No matplotlib, no browser, no third-party dependency: everything is a
 string, so artifacts can be embedded in notebooks, dashboards, agent
@@ -64,10 +65,11 @@ _THEMES = {
 _MARGIN = {"l": 46, "r": 96, "t": 26, "b": 58}
 
 _KINDS = {
-    "sat":   "tri-up",
-    "pert":  "tri-down",
-    "alarm": "diamond",
-    "shock": "bar",
+    "sat":     "tri-up",
+    "pert":    "tri-down",
+    "alarm":   "diamond",
+    "shock":   "bar",
+    "release": "diamond-k",   # spring tension discharge — kappa purple
 }
 
 
@@ -112,11 +114,32 @@ def _clip01(v: float) -> float:
 
 
 def _ghost(drive: Drive, n: int) -> list[float]:
-    """Project the drive n ticks under inaction (elastic return + basal flux)."""
+    """Project n ticks of autonomous dynamics under inaction.
+
+    Mirrors Drive.update() — basal drift + the configured spring policy —
+    minus action/coupling, on a scratch tension register so the real drive
+    state is untouched. Under "linear" it converges to x* + λ/κ; under
+    "pulsatile" it shows the sawtooth struggle (and the escape when the
+    drift outruns the spring's reach).
+    """
     x = drive.value
+    sig = drive._tension
+    t0 = drive.history[-1][0] if drive.history else 0
     out = [x]
-    for _ in range(n):
-        x = _clip01(x - drive.kappa * (x - drive.set_point) + drive.lambda_rate)
+    for i in range(1, n + 1):
+        d = x - drive.set_point
+        if callable(drive.spring):
+            release = drive.spring(d)
+        elif drive.spring == "linear":
+            release = -drive.kappa * d
+        else:
+            sig += drive._spring_charge(d)
+            release = -drive.spring_release * sig if abs(sig) >= drive.spring_threshold else 0.0
+            if release:
+                sig += release
+        drift = drive._drift_fn(x, drive.set_point, t0 + i,
+                                drive.lambda_rate, drive.drift_k)
+        x = _clip01(x + release + drift)
         out.append(x)
     return out
 
@@ -130,17 +153,18 @@ def _event_mark(kind: str, cx: float, cy: float, th: dict) -> str:
         return f'<path d="M{cx - 4:.1f} {cy - 1:.1f} h8 l-4 7z" fill="{bad}"/>'
     if shape == "diamond":
         return f'<path d="M{cx:.1f} {cy - 6:.1f} l4 3 l-4 3 l-4-3z" fill="{dead}"/>'
+    if shape == "diamond-k":
+        return f'<path d="M{cx:.1f} {cy - 6:.1f} l4 3 l-4 3 l-4-3z" fill="{th["kappa"]}"/>'
     return f'<rect x="{cx - 1:.1f}" y="{cy - 6:.1f}" width="2" height="7" fill="{soft}"/>'
 
 
 def _header_text(drive: Drive, lang: str) -> str:
     arrow = "↑" if drive.lambda_rate > 0 else ("↓" if drive.lambda_rate < 0 else "·")
-    word = {"es": ("recupera", "decae", "reposo"),
-            "en": ("recovering", "decaying", "resting")}[lang]
+    word = {"es": ("recupera", "decae"),
+            "en": ("recovering", "decaying")}[lang]
     basal = word[0] if drive.lambda_rate > 0 else (word[1] if drive.lambda_rate < 0 else "—")
     label = {"es": "deriva basal", "en": "basal drift"}[lang]
-    return (f"{drive.name} — {label}: {arrow} {basal} · "
-            f"{word[2]} {drive.resting_level:.2f} · κ {drive.kappa:.2f}")
+    return f"{drive.name} — {label}: {arrow} {basal} · κ {drive.kappa:.2f}"
 
 
 def _render_strip(
@@ -224,15 +248,6 @@ def _render_strip(
         f'stroke="{th["kappa"]}" stroke-width="2.6"/>'
     )
 
-    # ── resting level (dotted) ──
-    xr = drive.resting_level
-    if 0.0 <= xr <= 1.0:
-        r_y = y0 + (1.0 - xr) * ph
-        g.append(
-            f'<line x1="{x0:.1f}" x2="{x0 + pw:.1f}" y1="{r_y:.1f}" y2="{r_y:.1f}" '
-            f'stroke="{th["soft"]}" stroke-dasharray="2 4" stroke-width="1"/>'
-        )
-
     # ── trajectory ──
     hist = drive.history
     if len(hist) >= 2:
@@ -270,6 +285,11 @@ def _render_strip(
             f'<polyline points="{" ".join(gp)}" fill="none" stroke="{th["pen"]}" '
             f'stroke-width="2" stroke-dasharray="2 5" opacity="0.55"/>'
         )
+        glabel = {"es": "sin acción", "en": "no action"}[lang]
+        g.append(
+            f'<text x="{xx + 5:.1f}" y="{yy + 3:.1f}" font-size="9" '
+            f'fill="{th["soft"]}">{glabel}</text>'
+        )
 
     # ── event rug ──
     rug_y = y0 + ph + 16
@@ -301,8 +321,9 @@ def timeline_svg(
         events: optional per-drive event lists, keyed by drive name; each entry
             is a ``(tick, kind)`` pair with kind in ``sat/pert/alarm/shock``.
             When omitted, each drive's own ``drive.events`` is used.
-        ghost_ticks: how many ticks of "inaction" to project past the last
-            recorded point (0 = off). Drawn as a dashed extension.
+        ghost_ticks: how many ticks to project past the last recorded point
+            under inaction (0 = off). Applies drift + elastic return, so the
+            dashed extension converges to the resting level ``x* + λ/κ``.
         theme: ``"dark"`` (matches the reference figure) or ``"light"``.
         band_opacity: algedonic band fill opacity — transparent enough to
             read the trajectory through the bands.
