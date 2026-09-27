@@ -3,7 +3,7 @@
 Give agents motivations, not just capabilities.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __author__  = "Patricio Gerpe"
 __email__   = "pj.patriciojulian@gmail.com"
 
@@ -22,7 +22,7 @@ from .sleep import ConsolidationWorker, WakeGuard, SleepConfig
 from .action_registry import ActionSpec, ActionSet
 from .llm import DeepSeekBackend, DryRunBackend, get_backend, LLMTelemetry, ModelConfig
 from .report import SimulationLog
-from .viz import timeline_svg, timeline_html
+from .viz import timeline_svg, timeline_html, trajectory_artifact, TrajectoryArtifact
 from .world.world import World, WorldConfig, AgentConfig, AgentFrame, WorldFrame
 
 __all__ = [
@@ -76,6 +76,8 @@ __all__ = [
     # Visualization
     "timeline_svg",
     "timeline_html",
+    "trajectory_artifact",
+    "TrajectoryArtifact",
     # World / simulation
     "World",
     "WorldConfig",

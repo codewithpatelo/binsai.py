@@ -29,9 +29,9 @@ class TestTimelineSvg:
         b = make_trajectory(beta=-0.005, set_point=0.35)
         svg = timeline_svg([a, b], title="dos drives")
         assert "dos drives" in svg
-        assert "hunger" in svg  # both use the same name; count strips via band rects
-        # two set-point labels present (one per strip)
-        assert svg.count('font-size="12"') >= 2
+        assert "hunger" in svg  # both use the same name; count strips via headers
+        # two strip headers present (one per drive)
+        assert svg.count("deriva basal") == 2
 
     def test_restorative_arrow_renders(self):
         d = make_trajectory(beta=-0.005)
@@ -48,13 +48,13 @@ class TestTimelineSvg:
         d.record_event(5, "sat")
         d.record_event(9, "pert")
         svg = timeline_svg(d)
-        assert svg.count('fill="#23479A"') >= 2  # trajectory circle + sat marker
+        assert svg.count('fill="#4ECDC4"') >= 2  # dark pen: trajectory circle + sat marker
 
     def test_events_override(self):
         d = make_trajectory()
         d.record_event(5, "sat")
         svg = timeline_svg(d, events={d.name: [(3, "alarm")]})
-        assert 'fill="#7A2E22"' in svg  # alarm diamond present
+        assert 'fill="#F85149"' in svg  # alarm diamond present (dark dead color)
 
     def test_record_event_public_api(self):
         d = make_trajectory()
@@ -81,6 +81,56 @@ class TestTimelineHtml:
         assert html.startswith("<!doctype html>")
         assert "<svg" in html
         assert "hunger" in html
+
+
+class TestTrajectoryArtifact:
+    def test_artifact_wraps_svg_and_html(self):
+        from binsai.viz import trajectory_artifact
+        d = make_trajectory()
+        art = trajectory_artifact(d)
+        assert art.svg().startswith("<svg")
+        assert art.html().startswith("<!doctype html>")
+        assert "TrajectoryArtifact" in repr(art)
+
+    def test_artifact_save(self, tmp_path):
+        from binsai.viz import trajectory_artifact
+        d = make_trajectory()
+        art = trajectory_artifact(d)
+        p = art.save(str(tmp_path / "d.html"))
+        assert "svg" in open(p, encoding="utf-8").read()
+        p2 = art.save(str(tmp_path / "d.svg"))
+        assert open(p2, encoding="utf-8").read().startswith("<svg")
+
+    def test_zone_bands_and_setpoint_dashed(self):
+        d = make_trajectory()
+        svg = timeline_svg(d)
+        assert svg.count('fill-opacity="0.22"') == 7   # 7 algedonic bands
+        assert 'stroke-dasharray="7 5"' in svg          # set-point dashed
+
+    def test_viability_limits_and_death_zones(self):
+        d = Drive(name="v", value=0.30, set_point=0.30, viability=(0.10, 0.90))
+        for t in range(10):
+            d.update(tick=t)
+        svg = timeline_svg(d)
+        assert svg.count('stroke-dasharray="9 6"') == 2  # lo + hi limit lines
+        assert svg.count('fill-opacity="0.55"') == 2     # two death zones
+
+    def test_full_range_viability_no_death_zone(self):
+        d = make_trajectory()  # default viability (0,1)
+        svg = timeline_svg(d)
+        assert 'fill-opacity="0.55"' not in svg
+
+    def test_kappa_tick_on_setpoint(self):
+        d = make_trajectory()
+        svg = timeline_svg(d)
+        assert 'stroke="#BC8CFF"' in svg  # κ vertical tick (dark theme)
+
+    def test_light_theme(self):
+        d = make_trajectory()
+        svg = timeline_svg(d, theme="light")
+        assert 'fill="#F2F6F3"' in svg
+        with pytest.raises(ValueError):
+            timeline_svg(d, theme="neon")
 
 
 def test_history_property_is_public_and_readonly():

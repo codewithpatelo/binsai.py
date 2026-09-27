@@ -1,20 +1,25 @@
-"""Dependency-free SVG visualisation for homeostatic / algedonic drives.
+"""Dependency-free drive-trajectory timeline — a self-contained visual artifact.
 
-Turns one or more :class:`~binsai.drives.Drive` trajectories into a
-"drive timeline": stacked strips with fuzzy algedonic zones, the set-point
-(solid) and passive resting level (dashed), the trajectory, an arrow at the
-tip showing the basal direction of inaction, an optional event rug, and an
-optional ghost projection of what inaction would do next.
+Turns one or more :class:`~binsai.drives.Drive` trajectories into a "drive
+timeline" artifact: stacked strips with algedonic zone bands, the set-point
+(dashed), the basal-drift arrow at the tip of the line (up = recover,
+down = decay), the elastic spring κ as a vertical tick on the set-point,
+viability limits (thick red dashes) with translucent "death zones" beyond
+them, an optional event rug, and an optional ghost projection of what
+inaction would do next.
 
-No matplotlib, no browser, no third-party dependency: the functions return
-strings, so they work in notebooks, scripts and CI alike.
+No matplotlib, no browser, no third-party dependency: everything is a
+string, so artifacts can be embedded in notebooks, dashboards, agent
+harnesses (Claude Code/Cowork-style artifacts, MCP tools) or saved to disk.
 
 Example::
 
-    from binsai.viz import timeline_svg, timeline_html
-    svg = timeline_svg(drive)                      # one drive
-    html = timeline_html([ctx, backlog])           # multi-drive, standalone page
-    open("timeline.svg", "w").write(svg)
+    from binsai.viz import trajectory_artifact, timeline_svg, timeline_html
+
+    art = trajectory_artifact(drive)               # one drive
+    art.save("drive.html")                         # standalone page
+    svg = art.svg()                                # raw SVG string
+    html = timeline_html([ctx, backlog])           # multi-drive page
 """
 
 from __future__ import annotations
@@ -23,54 +28,77 @@ from typing import Iterable, Mapping, Optional, Sequence, Union
 
 from .drives import Drive
 
-# Algedonic palette (Okabe-Ito-compatible greens/ambers/reds).
-_OK = "#5E9E72"
-_WARN = "#D9A92E"
-_BAD = "#C24F38"
-_DEAD = "#7A2E22"
-_INK = "#18242C"
-_SOFT = "#51626B"
-_PEN = "#23479A"
-_GRID = "#CCD9D1"
+# ── Themes ──────────────────────────────────────────────────────────────────
 
-_MARGIN = {"l": 44, "r": 84, "t": 22, "b": 58}
+_THEMES = {
+    "dark": {
+        "bg":       "#0E1117",
+        "panel":    "#0E1117",
+        "ink":      "#E6EDF3",
+        "soft":     "#7D8590",
+        "pen":      "#4ECDC4",   # trajectory stroke
+        "grid":     "#21262D",
+        "ok":       "#3FB950",
+        "warn":     "#D29922",
+        "bad":      "#F0A03C",
+        "dead":     "#F85149",
+        "kappa":    "#BC8CFF",
+        "death":    "#000000",
+    },
+    "light": {
+        "bg":       "#F2F6F3",
+        "panel":    "#FFFFFF",
+        "ink":      "#18242C",
+        "soft":     "#51626B",
+        "pen":      "#23479A",
+        "grid":     "#CCD9D1",
+        "ok":       "#5E9E72",
+        "warn":     "#D9A92E",
+        "bad":      "#C24F38",
+        "dead":     "#7A2E22",
+        "kappa":    "#6E49CB",
+        "death":    "#1B1B1B",
+    },
+}
+
+_MARGIN = {"l": 46, "r": 96, "t": 26, "b": 58}
 
 _KINDS = {
-    "sat": ("tri-up", _PEN),
-    "pert": ("tri-down", _BAD),
-    "alarm": ("diamond", _DEAD),
-    "shock": ("bar", _SOFT),
+    "sat":   "tri-up",
+    "pert":  "tri-down",
+    "alarm": "diamond",
+    "shock": "bar",
 }
 
 
-def _zone_color(name: str) -> str:
+def _zone_color(name: str, th: dict) -> str:
     n = name.lower()
     if "equilibrium" in n:
-        return _OK
+        return th["ok"]
     if "moderate" in n:
-        return _WARN
+        return th["warn"]
     if "high" in n:
-        return _BAD
+        return th["bad"]
     if "critical" in n:
-        return _DEAD
-    return _WARN
+        return th["dead"]
+    return th["warn"]
 
 
-def _zone_stops(zones) -> list[tuple[float, str]]:
-    """Sorted (offset, color) stops for a soft vertical gradient.
+def _zone_bands(zones) -> list[tuple[float, float, str]]:
+    """Hard-edged algedonic bands: (lo, hi, zone_name) covering [0,1].
 
-    SVG gradient offsets run 0 (top, value 1) to 1 (bottom, value 0), so the
-    offset of a zone centered at ``c`` is ``1 - c``. One stop per zone center
-    lets the linear gradient cross-fade between neighbouring zones (soft edges,
-    no hard band lines).
+    Band edges sit at the midpoints between consecutive zone centers — so
+    the number of bands and their thresholds follow ``drive.zones`` directly
+    (parametrizable per drive, default seven).
     """
     if not zones:
-        return [(0.0, _OK), (1.0, _OK)]
+        return [(0.0, 1.0, "equilibrium")]
     zs = sorted(zones, key=lambda z: z.center)
-    stops = {0.0: _zone_color(zs[-1].name), 1.0: _zone_color(zs[0].name)}
-    for z in zs:
-        stops[round(1.0 - z.center, 6)] = _zone_color(z.name)
-    return sorted(stops.items())
+    edges = [0.0]
+    for a, b in zip(zs, zs[1:]):
+        edges.append((a.center + b.center) / 2.0)
+    edges.append(1.0)
+    return [(edges[i], edges[i + 1], zs[i].name) for i in range(len(zs))]
 
 
 def _as_list(drives: Union[Drive, Iterable[Drive]]) -> list[Drive]:
@@ -93,15 +121,26 @@ def _ghost(drive: Drive, n: int) -> list[float]:
     return out
 
 
-def _event_mark(kind: str, cx: float, cy: float) -> str:
-    shape, color = _KINDS.get(kind, _KINDS["shock"])
+def _event_mark(kind: str, cx: float, cy: float, th: dict) -> str:
+    shape = _KINDS.get(kind, "bar")
+    pen, bad, dead, soft = th["pen"], th["bad"], th["dead"], th["soft"]
     if shape == "tri-up":
-        return f'<path d="M{cx:.1f} {cy - 7:.1f} l4 7 h-8z" fill="{color}"/>'
+        return f'<path d="M{cx:.1f} {cy - 7:.1f} l4 7 h-8z" fill="{pen}"/>'
     if shape == "tri-down":
-        return f'<path d="M{cx - 4:.1f} {cy - 1:.1f} h8 l-4 7z" fill="{color}"/>'
+        return f'<path d="M{cx - 4:.1f} {cy - 1:.1f} h8 l-4 7z" fill="{bad}"/>'
     if shape == "diamond":
-        return f'<path d="M{cx:.1f} {cy - 6:.1f} l4 3 l-4 3 l-4-3z" fill="{color}"/>'
-    return f'<rect x="{cx - 1:.1f}" y="{cy - 6:.1f}" width="2" height="7" fill="{color}"/>'
+        return f'<path d="M{cx:.1f} {cy - 6:.1f} l4 3 l-4 3 l-4-3z" fill="{dead}"/>'
+    return f'<rect x="{cx - 1:.1f}" y="{cy - 6:.1f}" width="2" height="7" fill="{soft}"/>'
+
+
+def _header_text(drive: Drive, lang: str) -> str:
+    arrow = "↑" if drive.lambda_rate > 0 else ("↓" if drive.lambda_rate < 0 else "·")
+    word = {"es": ("recupera", "decae", "reposo"),
+            "en": ("recovering", "decaying", "resting")}[lang]
+    basal = word[0] if drive.lambda_rate > 0 else (word[1] if drive.lambda_rate < 0 else "—")
+    label = {"es": "deriva basal", "en": "basal drift"}[lang]
+    return (f"{drive.name} — {label}: {arrow} {basal} · "
+            f"{word[2]} {drive.resting_level:.2f} · κ {drive.kappa:.2f}")
 
 
 def _render_strip(
@@ -114,55 +153,87 @@ def _render_strip(
     tmax: int,
     events: Sequence[tuple[int, str]],
     ghost_ticks: int,
+    th: dict,
+    band_opacity: float,
+    lang: str,
 ) -> str:
     g = []
-    # fuzzy algedonic background
-    stops = _zone_stops(drive.zones)
-    grad = "".join(
-        f'<stop offset="{o * 100:.3f}%" stop-color="{c}" stop-opacity="0.26"/>'
-        for o, c in stops
-    )
-    g.append(
-        f'<defs><linearGradient id="binsai-band-{idx}" x1="0" y1="0" x2="0" y2="1">'
-        f"{grad}</linearGradient></defs>"
-    )
-    g.append(
-        f'<rect x="{x0:.1f}" y="{y0:.1f}" width="{pw:.1f}" height="{ph:.1f}" '
-        f'fill="url(#binsai-band-{idx})"/>'
-    )
-    # horizontal grid + y labels
+
+    # ── viability limits + death zones (behind everything) ──
+    lo_v, hi_v = drive.viability
+    if lo_v > 0.0:  # death zone below lo_v
+        y = y0 + (1.0 - lo_v) * ph
+        g.append(
+            f'<rect x="{x0:.1f}" y="{y:.1f}" width="{pw:.1f}" '
+            f'height="{(y0 + ph - y):.1f}" fill="{th["death"]}" fill-opacity="0.55"/>'
+        )
+    if hi_v < 1.0:  # death zone above hi_v
+        y = y0 + (1.0 - hi_v) * ph
+        g.append(
+            f'<rect x="{x0:.1f}" y="{y0:.1f}" width="{pw:.1f}" '
+            f'height="{(y - y0):.1f}" fill="{th["death"]}" fill-opacity="0.55"/>'
+        )
+
+    # ── algedonic zone bands ──
+    for lo, hi, name in _zone_bands(drive.zones):
+        y_top = y0 + (1.0 - hi) * ph
+        h = (hi - lo) * ph
+        g.append(
+            f'<rect x="{x0:.1f}" y="{y_top:.1f}" width="{pw:.1f}" height="{h:.1f}" '
+            f'fill="{_zone_color(name, th)}" fill-opacity="{band_opacity}"/>'
+        )
+
+    # ── viability limit lines (thick red dashes) ──
+    for lim in (lo_v, hi_v):
+        if 0.0 < lim < 1.0:
+            y = y0 + (1.0 - lim) * ph
+            g.append(
+                f'<line x1="{x0:.1f}" x2="{x0 + pw:.1f}" y1="{y:.1f}" y2="{y:.1f}" '
+                f'stroke="{th["dead"]}" stroke-width="2.4" stroke-dasharray="9 6"/>'
+            )
+
+    # ── grid + y labels ──
     for v in (0.0, 0.5, 1.0):
         y = y0 + (1.0 - v) * ph
         g.append(
             f'<line x1="{x0:.1f}" x2="{x0 + pw:.1f}" y1="{y:.1f}" y2="{y:.1f}" '
-            f'stroke="{_GRID}" stroke-width="0.6"/>'
+            f'stroke="{th["grid"]}" stroke-width="0.6"/>'
         )
         g.append(
             f'<text x="{x0 - 6:.1f}" y="{y + 4:.1f}" text-anchor="end" font-size="11" '
-            f'fill="{_SOFT}">{v:.1f}</text>'
+            f'fill="{th["soft"]}">{v:.1f}</text>'
         )
-    # drive label
+
+    # ── header: drive name, basal direction, resting level, κ ──
     g.append(
-        f'<text x="{x0:.1f}" y="{y0 + 12:.1f}" font-size="12" font-weight="600" '
-        f'fill="{_INK}">δ·{drive.name}</text>'
+        f'<text x="{x0:.1f}" y="{y0 + 11:.1f}" font-size="11" font-weight="600" '
+        f'fill="{th["pen"]}">{_header_text(drive, lang)}</text>'
     )
-    # set-point (solid) and resting level (dashed)
+
+    # ── set-point (dashed) + κ vertical tick ──
     sp_y = y0 + (1.0 - drive.set_point) * ph
     g.append(
         f'<line x1="{x0:.1f}" x2="{x0 + pw:.1f}" y1="{sp_y:.1f}" y2="{sp_y:.1f}" '
-        f'stroke="{_INK}" stroke-width="1.1"/>'
+        f'stroke="{th["ink"]}" stroke-width="1.1" stroke-dasharray="7 5"/>'
     )
+    # κ: the elastic spring, drawn as a vertical tick on the set-point line
+    k_h = max(5.0, drive.kappa * ph * 0.9)
+    kx = x0 + pw - 10
+    g.append(
+        f'<line x1="{kx:.1f}" x2="{kx:.1f}" y1="{sp_y - k_h:.1f}" y2="{sp_y + k_h:.1f}" '
+        f'stroke="{th["kappa"]}" stroke-width="2.6"/>'
+    )
+
+    # ── resting level (dotted) ──
     xr = drive.resting_level
     if 0.0 <= xr <= 1.0:
         r_y = y0 + (1.0 - xr) * ph
         g.append(
             f'<line x1="{x0:.1f}" x2="{x0 + pw:.1f}" y1="{r_y:.1f}" y2="{r_y:.1f}" '
-            f'stroke="{_INK}" stroke-dasharray="5 5" stroke-width="1"/>'
+            f'stroke="{th["soft"]}" stroke-dasharray="2 4" stroke-width="1"/>'
         )
-        g.append(
-            f'<text x="{x0 + pw + 4:.1f}" y="{r_y + 4:.1f}" font-size="10" fill="{_INK}">reposo</text>'
-        )
-    # trajectory
+
+    # ── trajectory ──
     hist = drive.history
     if len(hist) >= 2:
         pts = []
@@ -171,22 +242,22 @@ def _render_strip(
             yy = y0 + (1.0 - value) * ph
             pts.append(f"{xx:.1f},{yy:.1f}")
         g.append(
-            f'<polyline points="{" ".join(pts)}" fill="none" stroke="{_PEN}" '
+            f'<polyline points="{" ".join(pts)}" fill="none" stroke="{th["pen"]}" '
             f'stroke-width="2" stroke-linejoin="round"/>'
         )
         last_tick, last_val = hist[-1]
         tx = x0 + (last_tick / tmax) * pw if tmax else x0
         ty = y0 + (1.0 - last_val) * ph
-        g.append(f'<circle cx="{tx:.1f}" cy="{ty:.1f}" r="4" fill="{_PEN}"/>')
-        # arrow at the tip: basal direction of inaction
-        f = -drive.kappa * (last_val - drive.set_point) + drive.lambda_rate
-        if abs(f) > 1e-4:
-            length = max(-0.9 * ph, min(0.9 * ph, f * 22 * ph))
+        g.append(f'<circle cx="{tx:.1f}" cy="{ty:.1f}" r="4" fill="{th["pen"]}"/>')
+        # basal drift arrow at the tip — up if recovering (λ>0), down if decaying
+        if abs(drive.lambda_rate) > 1e-9:
+            length = 26 if drive.lambda_rate > 0 else -26
             g.append(
                 f'<line x1="{tx:.1f}" y1="{ty:.1f}" x2="{tx:.1f}" y2="{ty - length:.1f}" '
-                f'stroke="{_INK}" stroke-width="2.2" marker-end="url(#binsai-arr)"/>'
+                f'stroke="{th["ink"]}" stroke-width="2.2" marker-end="url(#binsai-arr)"/>'
             )
-    # ghost projection (what inaction would do next)
+
+    # ── ghost projection (what inaction would do next) ──
     if ghost_ticks > 0 and hist:
         last_tick, _ = hist[-1]
         proj = _ghost(drive, ghost_ticks)
@@ -196,25 +267,29 @@ def _render_strip(
             yy = y0 + (1.0 - v) * ph
             gp.append(f"{xx:.1f},{yy:.1f}")
         g.append(
-            f'<polyline points="{" ".join(gp)}" fill="none" stroke="{_PEN}" '
+            f'<polyline points="{" ".join(gp)}" fill="none" stroke="{th["pen"]}" '
             f'stroke-width="2" stroke-dasharray="2 5" opacity="0.55"/>'
         )
-    # event rug
+
+    # ── event rug ──
     rug_y = y0 + ph + 16
     for tick, kind in events:
         cx = x0 + (tick / tmax) * pw if tmax else x0
-        g.append(_event_mark(kind, cx, rug_y))
+        g.append(_event_mark(kind, cx, rug_y, th))
     return "".join(g)
 
 
 def timeline_svg(
     drives: Union[Drive, Iterable[Drive]],
     *,
-    width: int = 860,
-    strip_height: int = 130,
+    width: int = 900,
+    strip_height: int = 140,
     title: Optional[str] = None,
     events: Optional[Mapping[str, Sequence[tuple[int, str]]]] = None,
     ghost_ticks: int = 0,
+    theme: str = "dark",
+    band_opacity: float = 0.22,
+    lang: str = "es",
 ) -> str:
     """Render one or more drives as a self-contained SVG timeline string.
 
@@ -228,7 +303,15 @@ def timeline_svg(
             When omitted, each drive's own ``drive.events`` is used.
         ghost_ticks: how many ticks of "inaction" to project past the last
             recorded point (0 = off). Drawn as a dashed extension.
+        theme: ``"dark"`` (matches the reference figure) or ``"light"``.
+        band_opacity: algedonic band fill opacity — transparent enough to
+            read the trajectory through the bands.
+        lang: ``"es"`` or ``"en"`` for strip headers.
     """
+    th = _THEMES.get(theme)
+    if th is None:
+        raise ValueError(f"theme must be one of {sorted(_THEMES)}, got {theme!r}")
+
     ds = _as_list(drives)
     if not ds:
         raise ValueError("timeline_svg needs at least one Drive")
@@ -247,23 +330,27 @@ def timeline_svg(
     parts.append(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
                  f'width="{width}" role="img">')
     parts.append(
-        '<marker id="binsai-arr" viewBox="0 0 10 10" refX="5" refY="5" '
-        'markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
-        '<path d="M0 0 L10 5 L0 10z" fill="#18242C"/></marker>'
+        f'<rect x="0" y="0" width="{width}" height="{height}" fill="{th["bg"]}"/>'
+    )
+    parts.append(
+        f'<marker id="binsai-arr" viewBox="0 0 10 10" refX="5" refY="5" '
+        f'markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
+        f'<path d="M0 0 L10 5 L0 10z" fill="{th["ink"]}"/></marker>'
     )
 
     y_cursor = _MARGIN["t"]
     if title:
         parts.append(
             f'<text x="{_MARGIN["l"]}" y="{y_cursor + 6}" font-size="14" font-weight="600" '
-            f'fill="{_INK}">{title}</text>'
+            f'fill="{th["ink"]}">{title}</text>'
         )
         y_cursor += 24
 
     for i, d in enumerate(ds):
         ev = (events or {}).get(d.name, d.events)
         parts.append(
-            _render_strip(d, i, _MARGIN["l"], y_cursor, pw, strip_height, tmax, ev, ghost_ticks)
+            _render_strip(d, i, _MARGIN["l"], y_cursor, pw, strip_height,
+                          tmax, ev, ghost_ticks, th, band_opacity, lang)
         )
         if i < n - 1:
             y_cursor += strip_height + 18
@@ -273,18 +360,23 @@ def timeline_svg(
     axis_y = min(axis_y, height - 14)
     parts.append(
         f'<line x1="{_MARGIN["l"]}" x2="{_MARGIN["l"] + pw}" y1="{axis_y:.1f}" '
-        f'y2="{axis_y:.1f}" stroke="{_INK}" stroke-width="1"/>'
+        f'y2="{axis_y:.1f}" stroke="{th["ink"]}" stroke-width="1"/>'
     )
+    xlab = {"es": "ticks", "en": "ticks"}[lang]
     for t in range(0, tmax + 1, max(1, tmax // 8)):
         xx = _MARGIN["l"] + (t / tmax) * pw
         parts.append(
             f'<line x1="{xx:.1f}" x2="{xx:.1f}" y1="{axis_y - 3:.1f}" y2="{axis_y + 3:.1f}" '
-            f'stroke="{_INK}"/>'
+            f'stroke="{th["ink"]}"/>'
         )
         parts.append(
             f'<text x="{xx:.1f}" y="{axis_y + 16:.1f}" text-anchor="middle" font-size="11" '
-            f'fill="{_SOFT}">{t}</text>'
+            f'fill="{th["soft"]}">{t}</text>'
         )
+    parts.append(
+        f'<text x="{_MARGIN["l"] + pw:.1f}" y="{axis_y + 30:.1f}" text-anchor="end" '
+        f'font-size="10" fill="{th["soft"]}">{xlab}</text>'
+    )
     parts.append("</svg>")
     return "".join(parts)
 
@@ -292,25 +384,86 @@ def timeline_svg(
 def timeline_html(
     drives: Union[Drive, Iterable[Drive]],
     *,
-    width: int = 860,
-    strip_height: int = 130,
+    width: int = 900,
+    strip_height: int = 140,
     title: Optional[str] = None,
     events: Optional[Mapping[str, Sequence[tuple[int, str]]]] = None,
     ghost_ticks: int = 0,
+    theme: str = "dark",
+    band_opacity: float = 0.22,
+    lang: str = "es",
 ) -> str:
-    """Return a standalone HTML page wrapping :func:`timeline_svg` (for sharing)."""
+    """Return a standalone HTML page wrapping :func:`timeline_svg`."""
     svg = timeline_svg(
         drives, width=width, strip_height=strip_height, title=title,
-        events=events, ghost_ticks=ghost_ticks,
+        events=events, ghost_ticks=ghost_ticks, theme=theme,
+        band_opacity=band_opacity, lang=lang,
     )
+    th = _THEMES[theme if theme in _THEMES else "dark"]
+    page_title = {"es": "Binsai · línea de tiempo de drives",
+                  "en": "Binsai · drive timeline"}[lang]
     return (
-        "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">"
+        "<!doctype html><html lang=\"" + lang + "\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-        "<title>Binsai · línea de tiempo de drives</title>"
-        "<style>body{margin:0;background:#E7EEEA;color:#18242C;"
+        f"<title>{page_title}</title>"
+        f"<style>body{{margin:0;background:{th['bg']};color:{th['ink']};"
         "font-family:system-ui,sans-serif;padding:24px}svg{display:block;"
-        "max-width:100%;height:auto;background:#F2F6F3;border-radius:14px;"
-        "border:1px solid #CCD9D1;padding:8px}</style></head><body>"
+        f"max-width:100%;height:auto;border:1px solid {th['grid']};"
+        "border-radius:14px;padding:8px}</style></head><body>"
         + svg +
         "</body></html>"
     )
+
+
+class TrajectoryArtifact:
+    """A self-contained drive-trajectory artifact for agent harnesses.
+
+    Wraps :func:`timeline_svg`/:func:`timeline_html` into an object that can
+    be rendered, saved, or embedded by tools that display artifacts
+    (notebooks, Claude-style artifact panes, MCP responses).
+
+    Example::
+
+        art = trajectory_artifact(drive, title="metabolic — night shift")
+        art.save("metabolic.html")          # shareable page
+        art.svg()                            # inline SVG for embedding
+        str(art)                             # full HTML page
+    """
+
+    def __init__(self, drives: Union[Drive, Iterable[Drive]], **kwargs) -> None:
+        self.drives = _as_list(drives)
+        self.kwargs = kwargs
+
+    def svg(self, **overrides) -> str:
+        kw = {**self.kwargs, **overrides}
+        return timeline_svg(self.drives, **kw)
+
+    def html(self, **overrides) -> str:
+        kw = {**self.kwargs, **overrides}
+        return timeline_html(self.drives, **kw)
+
+    def save(self, path: str, **overrides) -> str:
+        """Write the artifact (HTML page or raw SVG by extension)."""
+        content = self.svg(**overrides) if path.endswith(".svg") else self.html(**overrides)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        return path
+
+    def _repr_html_(self) -> str:
+        """IPython/Jupyter rich display hook."""
+        return self.svg()
+
+    def __str__(self) -> str:
+        return self.html()
+
+    def __repr__(self) -> str:
+        names = ", ".join(d.name for d in self.drives)
+        return f"TrajectoryArtifact([{names}])"
+
+
+def trajectory_artifact(
+    drives: Union[Drive, Iterable[Drive]],
+    **kwargs,
+) -> TrajectoryArtifact:
+    """Build a :class:`TrajectoryArtifact` from one or more drives."""
+    return TrajectoryArtifact(drives, **kwargs)

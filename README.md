@@ -33,7 +33,7 @@
 
 Instead of only asking what an agent can do, Binsai helps decide **why, when, and whether it should act**.
 
-**Current version**: 0.2.0 · **Status**: MVP 1 "Hungry Agents" ✅ — `binsai run mvp1 --no-llm`
+**Current version**: 0.2.1 · **Status**: MVP 1 "Hungry Agents" ✅ — `binsai run mvp1 --no-llm`
 
 ---
 
@@ -121,6 +121,17 @@ metabolic.update(tick=3.0)              # → metabolic.pressure, metabolic.driv
 Four contract kinds: `budget` (consumed within a window), `floor` (must not drop below), `target` (must be reached in time), `band` (must stay inside a range). Sensor gone stale or returning impossible values? `SensorInvalid` is emitted — **a variable that can't be measured is never assumed green**.
 
 Contract values live in versioned files, not code — see [`examples/viability-contract.json`](examples/viability-contract.json) + [`viability-contract.md`](examples/viability-contract.md), loaded via `binsai.load_contract()`.
+
+### Drive-trajectory artifact
+
+A dependency-free timeline of a drive's trajectory — algedonic bands, set-point, basal-drift arrow, κ spring, viability limits — exportable as a self-contained artifact for notebooks, dashboards or agent harnesses:
+
+```python
+from binsai import trajectory_artifact
+
+art = trajectory_artifact(drive, title="metabolic — night shift")
+art.save("drive.html")   # standalone page; art.svg() for raw SVG
+```
 
 ### Canonical events & subscriptions
 
@@ -466,7 +477,7 @@ Copyright (C) 2026 Patricio Gerpe
 
 En lugar de preguntar solo qué puede hacer un agente, Binsai ayuda a decidir **por qué, cuándo y si debe actuar**.
 
-**Versión actual**: 0.2.0 · **Estado**: MVP 1 "Agentes Hambrientos" ✅ — `binsai run mvp1 --no-llm`
+**Versión actual**: 0.2.1 · **Estado**: MVP 1 "Agentes Hambrientos" ✅ — `binsai run mvp1 --no-llm`
 
 ---
 
@@ -556,6 +567,17 @@ metabolico.update(tick=3.0)             # → metabolico.pressure, metabolico.dr
 Cuatro tipos de contrato: `budget` (se consume dentro de una ventana), `floor` (no debe bajar del piso), `target` (hay que alcanzarlo en la ventana), `band` (debe quedar dentro de un rango). ¿Sensor vencido o valor imposible? Se emite `SensorInvalid` — **una variable que no se puede medir nunca se asume en verde**.
 
 Los valores del contrato viven en archivos versionados, no en el código — ver [`examples/viability-contract.json`](examples/viability-contract.json) + [`viability-contract.md`](examples/viability-contract.md), cargables con `binsai.load_contract()`.
+
+### Artefacto de trayectoria de drive
+
+Una línea de tiempo sin dependencias de la trayectoria de un drive — bandas algedónicas, punto de equilibrio, flecha de deriva basal, resorte κ, límites de viabilidad — exportable como artefacto autocontenido para notebooks, dashboards o harnesses de agentes:
+
+```python
+from binsai import trajectory_artifact
+
+art = trajectory_artifact(drive, title="metabólico — turno noche")
+art.save("drive.html")   # página standalone; art.svg() para SVG crudo
+```
 
 ### Eventos canónicos y suscripciones
 
