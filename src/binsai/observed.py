@@ -183,6 +183,8 @@ class ObservedVariable(EventEmitter):
         self.zone_thresholds = zone_thresholds
 
         self._samples: deque[tuple[float, float]] = deque(maxlen=10000)
+        self.samples_dropped: int = 0          # count of evicted oldest samples
+        self._drop_warned: bool = False        # warn once, then count silently
         self._last_zone: Optional[str] = None
         self._invalid_reason: Optional[str] = "no samples"
         # last computed state (for introspection)
@@ -204,6 +206,17 @@ class ObservedVariable(EventEmitter):
             self._set_invalid(reason, t)
             return None
         self._invalid_reason = None
+        if self._samples.maxlen and len(self._samples) == self._samples.maxlen:
+            self.samples_dropped += 1
+            if not self._drop_warned:
+                import warnings
+                warnings.warn(
+                    f"ObservedVariable '{self.name}' evicted its oldest sample "
+                    f"(maxlen={self._samples.maxlen}) — long-window rate "
+                    f"estimates are now windowed, not full-run.",
+                    stacklevel=2,
+                )
+                self._drop_warned = True
         self._samples.append((float(t), float(value)))
 
         p_level = self.level_pressure()

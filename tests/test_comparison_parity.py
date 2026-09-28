@@ -55,18 +55,27 @@ def test_variants_differ_only_in_spring():
             assert getattr(a, f) == getattr(b, f), f
 
 
-def test_full_history_retained_when_limit_zero():
-    """history_limit=0 must keep every tick — silent truncation distorted
-    the ablation figure (looked like a different initial condition)."""
-    d = Drive(name="t", value=0.5, history_limit=0)
+def test_default_retains_full_history():
+    """Default history_limit=0 keeps every tick — silent truncation
+    distorted the ablation figure (looked like a different initial
+    condition). Retaining everything is the default; limits are opt-in."""
+    d = Drive(name="t", value=0.5)
     for t in range(1200):
         d.update(t)
     assert len(d.history) == 1200
     assert d.history[0][0] == 0
+    assert d.history_dropped == 0
 
 
-def test_default_history_limit_still_caps():
-    d = Drive(name="t", value=0.5)  # default limit = 500
-    for t in range(1200):
-        d.update(t)
+def test_explicit_limit_caps_and_reports():
+    """A configured limit must cap AND register the discard — nothing in
+    this library drops data silently."""
+    import warnings
+    d = Drive(name="t", value=0.5, history_limit=500)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        for t in range(1200):
+            d.update(t)
     assert len(d.history) == 500
+    assert d.history_dropped == 700
+    assert any("history_limit" in str(w.message) for w in caught)

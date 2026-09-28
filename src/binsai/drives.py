@@ -132,13 +132,18 @@ class Drive(EventEmitter):
     alpha_out:      float = 1.0        # hysteresis: exit old zone when μ ≤ this
     viability:      tuple[float, float] = (0.0, 1.0)  # viability limits
     observed:       list  = field(default_factory=list)  # list[ObservedVariable]
-    history_limit:  int   = 500   # ticks retained in .history; 0 = keep all.
-    # Silent truncation distorts comparative figures — set 0 for experiments.
+    history_limit:  int   = 0     # max ticks retained in .history.
+    # Default 0 = retain everything — measurement integrity first: any
+    # structure that discards data must say so. Set an explicit limit when
+    # memory matters; when it acts, `history_dropped` counts the discarded
+    # ticks and a warning is emitted once.
 
     # Internal: not part of public API
     _history: list[tuple[int, float]] = field(default_factory=list, repr=False)
     _events:  list[tuple[int, str]]  = field(default_factory=list, repr=False)
     _tension: float = field(default=0.0, repr=False)  # pulsatile spring tension σ
+    _history_dropped: int = field(default=0, repr=False)
+    _history_warned:  bool = field(default=False, repr=False)
 
     def __post_init__(self) -> None:
         self._init_bus()
@@ -328,6 +333,12 @@ class Drive(EventEmitter):
         return list(self._history)
 
     @property
+    def history_dropped(self) -> int:
+        """Ticks discarded by history_limit so far. >0 means some consumer of
+        .history is seeing a window, not the full run."""
+        return self._history_dropped
+
+    @property
     def events(self) -> list[tuple[int, str]]:
         """Recorded events as (tick, kind) pairs, oldest first (read-only copy).
 
@@ -365,7 +376,19 @@ class Drive(EventEmitter):
         self.value = max(0.0, min(1.0, self.value + spring_delta + drift_amount + coupling))
         self._history.append((tick, self.value))
         if self.history_limit and len(self._history) > self.history_limit:
+            dropped = len(self._history) - self.history_limit
+            self._history_dropped += dropped
             self._history = self._history[-self.history_limit:]
+            if not self._history_warned:
+                import warnings
+                warnings.warn(
+                    f"Drive '{self.name}': history_limit={self.history_limit} "
+                    f"discarded {dropped} tick(s) — every truncated tick makes "
+                    f"comparative figures lie. Set history_limit=0 (default) to "
+                    f"retain the full trajectory.",
+                    stacklevel=2,
+                )
+                self._history_warned = True
 
         # Coupled event — the deviation of another need moved this one via W
         if abs(coupling) > 1e-9:
@@ -728,6 +751,17 @@ class Drives:
             if self._coupling_tau > 0 and len(src_drive._history) > self._coupling_tau:
                 x_delayed = src_drive._history[-self._coupling_tau - 1][1]
             else:
+                if self._coupling_tau > 0 and not getattr(src_drive, "_tau_warned", False):
+                    import warnings
+                    warnings.warn(
+                        f"coupling_tau={self._coupling_tau} exceeds "
+                        f"history of '{src_drive.name}' "
+                        f"({len(src_drive._history)} ticks retained) — delay "
+                        f"silently disabled, using current value. Raise "
+                        f"src_drive.history_limit or lower coupling_tau.",
+                        stacklevel=2,
+                    )
+                    src_drive._tau_warned = True
                 x_delayed = src_drive.value
             contribution = w * (x_delayed - src_drive.set_point)
             sources[src_name] = round(contribution, 6)

@@ -157,4 +157,15 @@ class Mailbox:
     def record_sent(self, msg: ACLMessage) -> None:
         self.sent.append(msg)
         if len(self.sent) > 200:
+            dropped = len(self.sent) - 200
+            self.sent_dropped = getattr(self, "sent_dropped", 0) + dropped
             self.sent = self.sent[-200:]
+            if not getattr(self, "_sent_warned", False):
+                import warnings
+                warnings.warn(
+                    "ACLMessageBus.record_sent: 'sent' capped at 200 "
+                    "messages — oldest messages discarded "
+                    f"({self.sent_dropped} dropped so far).",
+                    stacklevel=2,
+                )
+                self._sent_warned = True
