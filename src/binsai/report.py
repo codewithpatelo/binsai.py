@@ -104,7 +104,7 @@ def plot_trajectories(log: SimulationLog, save_path: Optional[str] = None):
     fig, ax = plt.subplots(figsize=(10, 4))
     for name, group in df.groupby("agent"):
         ax.plot(group["tick"], group["delta"], label=name, linewidth=1.2)
-    ax.axhline(0.30, color="gray", linestyle="--", linewidth=0.8, label="set-point")
+    ax.axhline(0.70, color="gray", linestyle="--", linewidth=0.8, label="set-point")
     ax.set_xlabel("tick")
     ax.set_ylabel("δ (metabolic drive)")
     ax.set_title("Drive trajectories")

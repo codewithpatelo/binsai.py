@@ -202,7 +202,7 @@ def appraise_demand(topic: str, message: str, backend: LLMBackend) -> AppraisedT
 def pick_model_for_state(
     action_kind:          str,
     delta:                float,
-    set_point:            float = 0.30,
+    set_point:            float = 0.70,
     appraised_difficulty: float = 0.5,
 ) -> ModelConfig:
     """Choose ModelConfig given selected action, δ, and agent's own appraisal.
@@ -216,26 +216,26 @@ def pick_model_for_state(
 
       respond_fast → weak   (always — cheap triage)
       respond_slow → weak   in nominal/loaded zone (matches ablation baseline)
-                  → main   only when δ deficit < -0.10 AND difficulty > 0.55
+                  → main   only when surplus > +0.10 AND difficulty > 0.55
                             (agent is genuinely sated and facing a hard task)
-                  → strong only when δ deficit < -0.20 AND difficulty > 0.75
+                  → strong only when surplus > +0.20 AND difficulty > 0.75
       proact       → main   (creative output benefits from CoT even in nominal)
-                  → strong only when δ deficit < -0.20 AND difficulty > 0.75
+                  → strong only when surplus > +0.20 AND difficulty > 0.75
     """
-    deviation = delta - set_point   # >0 = deficit, <0 = abundance
+    deviation = delta - set_point   # satisfaction: >0 = slack, <0 = deficit
 
     if action_kind == "respond_fast":
         return DEFAULT_ROUTING["weak"]
 
     if action_kind == "respond_slow":
-        if deviation < -0.20 and appraised_difficulty > 0.75:
+        if deviation > 0.20 and appraised_difficulty > 0.75:
             return DEFAULT_ROUTING["strong"]
-        if deviation < -0.10 and appraised_difficulty > 0.55:
+        if deviation > 0.10 and appraised_difficulty > 0.55:
             return DEFAULT_ROUTING["main"]
         return DEFAULT_ROUTING["weak"]   # nominal zone → match ablation cost
 
     if action_kind == "proact":
-        if deviation < -0.20 and appraised_difficulty > 0.75:
+        if deviation > 0.20 and appraised_difficulty > 0.75:
             return DEFAULT_ROUTING["strong"]
         return DEFAULT_ROUTING["main"]   # proact always uses CoT (creative)
 
@@ -293,7 +293,8 @@ def regulatory_state_to_prompt(drive: "Drive", scramble_labels: bool = False) ->
         f"[Internal regulatory state — δ_metabolic]\n"
         f"  Current δ = {drive.value:.3f}  "
         f"(set-point ε = {drive.set_point:.2f}; "
-        f"low δ = abundant resources, high δ = severe deficit)\n"
+        f"δ is metabolic satisfaction — low δ = depleted resources, "
+        f"high δ = slack)\n"
         f"  Zone memberships: {membership_str}\n"
         f"  Dominant zone: {dominant} — {dominant_label}\n"
     )

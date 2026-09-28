@@ -12,15 +12,17 @@ multinomial logistic regression (softmax of per-action affine functions of D):
 
 This is mathematically the multi-class extension of the binary sigmoid:
 each action k has its own activation curve σ_k(D), normalized to a simplex.
-- β_k > 0 → action activated by deficit (δ > ε)
-- β_k < 0 → action activated by abundance (δ < ε)
-- β_k = 0 → action is δ-insensitive baseline
+Satisfaction convention (x = satisfaction level): D = x* − x, so D > 0 means
+deficit (x below target) and D < 0 means slack.
+- β_k > 0 → action activated by deficit (x < x*)
+- β_k < 0 → action activated by slack (x > x*)
+- β_k = 0 → action is x-insensitive baseline
 - b_k    → bias (preference at set-point)
 
 Properties (AAH-A2 compliant, multi-action):
-- At δ = ε: D = 0, distribution is determined by biases alone (calm regime).
-- As δ grows above ε: probability mass shifts monotonically toward β_k > 0 actions.
-- As δ falls below ε: mass shifts toward β_k < 0 actions.
+- At x = x*: D = 0, distribution is determined by biases alone (calm regime).
+- As x falls below x*: probability mass shifts monotonically toward β_k > 0 actions.
+- As x rises above x*: mass shifts toward β_k < 0 actions.
 - For any pair (i,j): p_i/p_j = exp((β_i−β_j)·D + (b_i−b_j)) — monotonic in D.
 
 zone_memberships() is retained for the State Injection prompt (LLM reads
@@ -36,13 +38,13 @@ ZONES = ("critical_superavit", "high_superavit", "moderate_superavit",
          "equilibrium", "moderate_deficit", "high_deficit", "critical_deficit")
 
 ZONE_CENTERS: dict[str, float] = {
-    "critical_superavit":   0.05,
-    "high_superavit":       0.13,
-    "moderate_superavit":   0.22,
-    "equilibrium":          0.30,
-    "moderate_deficit":     0.40,
-    "high_deficit":         0.55,
-    "critical_deficit":     0.80,
+    "critical_deficit":     0.20,
+    "high_deficit":         0.45,
+    "moderate_deficit":     0.60,
+    "equilibrium":          0.70,
+    "moderate_superavit":   0.78,
+    "high_superavit":       0.87,
+    "critical_superavit":   0.95,
 }
 
 ZONE_WIDTH = 0.08  # Gaussian σ — narrower for 7 zones
@@ -53,23 +55,24 @@ ACTIONS_NO_DEMAND   = ["proact", "idle", "sleep"]
 # ── AAH-A2 multinomial logistic parameters ─────────────────────────────────────
 # Each action: (β, b) — β = drive-intensity sensitivity, b = baseline preference.
 # Calibrated so that:
-#   - δ ≈ ε: respond_fast dominates when demand present, idle when not
-#   - δ << ε (oversated): proact and respond_slow surge
-#   - δ >> ε (critical): defer and sleep surge, all LLM actions collapse
+#   - x ≈ x*: respond_fast dominates when demand present, idle when not
+#   - x >> x* (slack/oversated): proact and respond_slow surge
+#   - x << x* (critical deficit): defer and sleep surge, all LLM actions collapse
 ACTION_PARAMS: dict[str, tuple[float, float]] = {
     # action          β        b
-    "respond_fast": ( -0.5,   +1.6),   # mild abundance preference, default action
-    "respond_slow": ( -8.0,   -0.3),   # strong abundance preference
+    "respond_fast": ( -0.5,   +1.6),   # mild slack preference, default action
+    "respond_slow": ( -8.0,   -0.3),   # strong slack preference
     "defer":        ( +6.0,   -0.5),   # deficit-driven (activates a bit earlier)
-    "proact":       (-12.0,   -1.5),   # extreme abundance preference (proactive)
+    "proact":       (-12.0,   -1.5),   # extreme slack preference (proactive)
     "idle":         (  0.0,   -0.3),   # slight baseline penalty — pushes toward action
-    "sleep":        (+10.0,   -6.0),   # needs δ > 0.90 before meaningful probability
+    "sleep":        (+10.0,   -6.0),   # needs x < 0.10 before meaningful probability
 }
 
 
-def drive_intensity(delta: float, set_point: float = 0.30) -> float:
-    """D(δ) from AAH-A2. Signed deviation from set-point; D(ε)=0."""
-    return delta - set_point
+def drive_intensity(delta: float, set_point: float = 0.70) -> float:
+    """D(x) from AAH-A2 under the satisfaction convention: x* − x, so D > 0
+    means deficit (x below target) and D < 0 means slack."""
+    return set_point - delta
 
 
 def gaussian_membership(delta: float, center: float, width: float = ZONE_WIDTH) -> float:
@@ -100,7 +103,7 @@ def _softmax(logits: list[float], temperature: float = 1.0) -> list[float]:
 def compute_action_distribution(
     delta:        float,
     has_demand:   bool,
-    set_point:    float = 0.30,
+    set_point:    float = 0.70,
     ablation_off: bool  = False,
     temperature:  float = 1.0,
     demand_difficulty: float = 0.0,

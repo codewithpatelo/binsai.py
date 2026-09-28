@@ -30,8 +30,11 @@
 # %%
 from binsai import BinsaiAgent, Drives, Drive
 
-hunger = Drive(name="hunger", value=0.60, set_point=0.30,
-               kappa=0.02, lambda_rate=0.008, satiation_rate=0.30)
+# Satisfaction convention: x = satisfaction level; deficit = LOW x.
+# Hunger starts unsatisfied (0.40) and decays under neglect (basal drift).
+hunger = Drive(name="hunger", value=0.40, set_point=0.70,
+               kappa=0.02, basal_direction="decay", lambda_rate=0.008,
+               satiation_rate=0.30)
 
 agent = BinsaiAgent(name="Sim", drives=Drives([hunger]), dry_run_llm=True)
 agent.activate()
@@ -55,12 +58,12 @@ for tick in range(40):
     after = h.value
     zone_after = h.get_zone()
 
-    if after < before - 0.01:
+    if after > before + 0.01:
         what = "ATE! (event handler fired)"
     elif zone_before != zone_after:
         what = f"drifted into {zone_after}"
     else:
-        what = "idle (drive drifting)"
+        what = "idle (satisfaction decaying)"
 
     print(f"  {tick:2d} |  {after:.3f} | {zone_after:20s} | {what}")
 
@@ -71,13 +74,13 @@ deltas = []
 for tick in range(80):
     agent.tick(tick)
     h = agent.drives.get("hunger")
-    deltas.append(h.value if h else 0.30)
+    deltas.append(h.value if h else 0.70)
 
 plt.figure(figsize=(8, 2.5))
 plt.plot(deltas, 'o-', markersize=2, color='#d29922')
-plt.axhline(0.30, color='gray', linestyle='--', label='set-point')
-plt.xlabel('tick'); plt.ylabel('hunger δ')
-plt.title('Hunger drive — sawtooth: eat → drop → drift → eat')
+plt.axhline(0.70, color='gray', linestyle='--', label='set-point')
+plt.xlabel('tick'); plt.ylabel('hunger satisfaction x')
+plt.title('Hunger drive — sawtooth: decay → eat → jump → decay')
 plt.legend(); plt.grid(True, alpha=0.3)
 plt.tight_layout(); plt.show()
 
@@ -133,7 +136,8 @@ config = WorldConfig(
             name="HomeoBot",
             drive_names=["relatedness"],
             drive_configs=[
-                {"name": "relatedness", "lambda_rate": 0.010, "set_point": 0.30},
+                {"name": "relatedness", "basal_direction": "decay",
+                 "lambda_rate": 0.010, "set_point": 0.70},
             ],
             temperature=1.0,
         ),
@@ -157,9 +161,9 @@ import matplotlib.pyplot as plt
 homeo = df[df["agent"] == "HomeoBot"]
 plt.figure(figsize=(8, 2.5))
 plt.plot(homeo["tick"], homeo["delta"], color='#58a6ff')
-plt.axhline(0.30, color='gray', linestyle='--')
-plt.xlabel('tick'); plt.ylabel('relatedness δ')
-plt.title('Relatedness drive — decays when alone, spikes on contact')
+plt.axhline(0.70, color='gray', linestyle='--')
+plt.xlabel('tick'); plt.ylabel('relatedness satisfaction x')
+plt.title('Relatedness drive — satisfaction decays when alone, spikes on contact')
 plt.grid(True, alpha=0.3)
 plt.tight_layout(); plt.show()
 
@@ -171,18 +175,21 @@ print(f"Agent initiated contact at ticks: {proact_ticks}")
 # ---
 # ## Scenario 3: Hormonal routing (HPA) — 2 coupled drives
 #
-# A cheap model evaluates incoming tasks. When the metabolic drive is low (abundant resources)
-# AND the task is hard, the agent routes to an expensive model. When metabolic is high,
-# it defers or sleeps. Two drives are **coupled**: task_load feeds into metabolic.
+# A cheap model evaluates incoming tasks. When metabolic satisfaction is high
+# (slack resources) AND the task is hard, the agent routes to an expensive model.
+# When satisfaction is low (depleted), it defers or sleeps. Two drives are
+# **coupled**: task_load feeds into metabolic.
 
 # %%
 from binsai import World, WorldConfig, AgentConfig, Drives, Drive
 from binsai.action_registry import ActionSet, ActionSpec, _handler_llm, _handler_noop, _handler_sleep
 
-# 1. Create two coupled drives
+# 1. Create two coupled drives (metabolic = pull/recover; task_load = push/decay)
 drives = Drives([
-    Drive(name="metabolic", value=0.30, lambda_rate=0.005),
-    Drive(name="task_load", value=0.30, lambda_rate=0.003),
+    Drive(name="metabolic", value=0.70, category="pull",
+          basal_direction="recover", lambda_rate=0.005),
+    Drive(name="task_load", value=0.70, category="push",
+          basal_direction="decay", lambda_rate=0.003),
 ])
 # Coupling: task_load → metabolic (busy agent burns more resources)
 drives.set_coupling({

@@ -99,6 +99,12 @@ Canónicamente son siete, simétricas respecto del punto de equilibrio:
 | Déficit fuerte | ámbar | zona de alerta |
 | Déficit crítico | rojo | no actuar implica consecuencias irreversibles |
 
+Bajo la convención de satisfacción (x = nivel de satisfacción), las zonas de
+**déficit viven por debajo de x*** (x bajo = necesidad insatisfecha) y las de
+superávit por encima. Así la negligencia basal de un drive push (λ < 0)
+desciende por moderado → fuerte → crítico → viabilidad, que es donde la
+dinámica autónoma importa.
+
 Más allá del rojo está el límite de viabilidad: cruzarlo es la muerte operativa. Es conjuntivo sobre todas las necesidades: basta una afuera para que el sistema deje de ser viable.
 
 Parámetros de las zonas:

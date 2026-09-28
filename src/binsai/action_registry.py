@@ -91,14 +91,15 @@ def _handler_satiate(drive_name: str, amount: float = 0.5, action_name: str = "e
         drive_name: Name of the drive to satiate
         amount: Amount to satiate
         action_name: Display name for the action (e.g. 'go_to_fridge')
-        only_when_deficit: If True, only satiates when drive is above set-point
-                           (prevents eating when already oversated)
+        only_when_deficit: If True, only satiates when drive is below set-point
+                           (prevents eating when already sated — satisfaction
+                           convention: deficit = x < x*)
     """
     def handler(agent: Any, drive: Any, tick: int, demand: Any, difficulty: float) -> str:
         target = agent.drives.get(drive_name)
         if target:
-            if only_when_deficit and target.value <= target.set_point:
-                return "idle"  # already full, don't eat
+            if only_when_deficit and target.value >= target.set_point:
+                return "idle"  # already satisfied, don't eat
             target.satiate(amount)
         return action_name
     return handler

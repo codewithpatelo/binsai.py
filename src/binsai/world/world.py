@@ -28,7 +28,7 @@ class AgentConfig:
     """Per-agent physical parameters for heterogeneity."""
     name:            str
     lambda_override: float | None = None
-    initial_delta:   float        = 0.30
+    initial_delta:   float        = 0.70   # satisfaction convention: start at set-point
     temperature:     float        = 1.0
     ablation_off:    bool         = False   # per-agent regulation toggle
     drive_names:     list[str] | None = None  # custom drive subset (None = ["metabolic"])
@@ -45,9 +45,9 @@ class WorldConfig:
     speed:          float                = 2.0
     routing_policy: str                  = "fair"  # "fair" (paper) or "demo" (visible escalation)
     agents: list[AgentConfig] = field(default_factory=lambda: [
-        AgentConfig(name="Alpha", lambda_override=0.008, initial_delta=0.35, temperature=0.8),
-        AgentConfig(name="Beta",  lambda_override=0.006, initial_delta=0.30, temperature=1.0),
-        AgentConfig(name="Gamma", lambda_override=0.008, initial_delta=0.32, temperature=1.2,
+        AgentConfig(name="Alpha", lambda_override=0.008, initial_delta=0.68, temperature=0.8),
+        AgentConfig(name="Beta",  lambda_override=0.006, initial_delta=0.70, temperature=1.0),
+        AgentConfig(name="Gamma", lambda_override=0.008, initial_delta=0.72, temperature=1.2,
                     ablation_off=True),   # Gamma starts unregulated for ablation comparison
     ])
 

@@ -12,16 +12,19 @@ The Pro-Action Equation (EPA), per need i, per pulse:
     u_i   stimuli & actions          | satiate (α>0, reduces deviation) or perturb (α<0)
     W_ij  coupling                   | how much another need's deviation moves this one
 
-Semantics (HRRL convention — Keramati-Gutkin 2014; Driveplexity):
-    δ ∈ [0, 1]  |  HIGH = deficit = urgency  |  LOW = abundance / superavit
-    set_point (x*) is the homeostatic target (equilibrium zone center ≈ 0.30).
+Semantics (satisfaction convention — see docs/EPA.md §2):
+    x ∈ [0, 1] is the SATISFACTION level of the need — not the deficit
+    magnitude:  HIGH = satisfied / slack  |  LOW = deficit = urgency
+    set_point (x*) is the homeostatic target (equilibrium zone center ≈ 0.70).
 
-    deplete(amount)  → raises δ  (resource consumed: tokens spent, cost incurred)
-    satiate(amount)  → lowers δ  (resource gained: task completed, consolidation)
-    update()         → applies λ + elastic return + coupling per pulse.
+    deplete(amount)  → lowers x  (resource consumed: tokens spent, work done)
+    satiate(amount)  → raises x  (need satisfied: delivery made, consolidation)
+    update()         → applies λ + spring release + coupling per pulse.
                        λ = lambda_rate is SIGNED (or set via basal_direction):
-                         "recover" / λ > 0 → inaction accumulates need (hunger)
-                         "decay"   / λ < 0 → inaction restores (sleep / energy)
+                         "recover" / λ > 0 → inaction replenishes (pull needs:
+                                             budget windows refill, memory frees)
+                         "decay"   / λ < 0 → inaction starves (push needs:
+                                             hunger, service backlog build up)
                          λ = 0            → only stimuli and actions move the need
 
 Need categories (EPA §2.4):
@@ -84,15 +87,16 @@ class Drive(EventEmitter):
         category:        "push" (accumulates pressure → activates) or
                          "pull" (protects a resource → inhibits/preserves)
         stratum:         Ontological level (Bunge-Romero) — optional taxonomy
-        value:           Current x ∈ [0, 1]  (high = deficit)
+        value:           Current x ∈ [0, 1]  (satisfaction level; low = deficit)
         set_point:       Homeostatic target x*
         kappa:           Spring coefficient κ. Under "linear" it is the elastic
                          return rate; under "pulsatile" it is the tension
                          charge rate (σ += κ·d·e^(−|d|/w) per pulse)
         lambda_rate:     Basal flux λ per pulse, SIGNED (or via basal_direction)
         basal_direction: Optional semantic alias: "recover" forces λ>0 (the need
-                         builds under inaction, e.g. hunger), "decay" forces
-                         λ<0 (the need fades under inaction, e.g. energy debt)
+                         replenishes under inaction — pull/resource drives),
+                         "decay" forces λ<0 (satisfaction decays under neglect —
+                         push drives like hunger or service backlog)
         satiation_rate:  Multiplier applied in satiate()
         alpha_in:        Hysteresis — membership needed to ENTER a new zone
         alpha_out:       Hysteresis — current zone held while its membership
@@ -106,8 +110,8 @@ class Drive(EventEmitter):
     """
     name:           str
     stratum:        Optional[Stratum] = None  # descriptive taxonomy, does not affect simulation
-    value:          float = 0.30
-    set_point:      float = 0.30
+    value:          float = 0.70
+    set_point:      float = 0.70
     kappa:          float = 0.05
     lambda_rate:    float = 0.005
     satiation_rate: float = 0.10
@@ -179,17 +183,19 @@ class Drive(EventEmitter):
         # Observed-variable pressure state (EPA §4.8)
         self.pressure:         Optional[float] = None
         self.driving_variable: Optional[str]   = None
-        # Default zones if none provided — 7 interpretable bands
-        # Low δ = superavit (abundance), high δ = deficit (scarcity)
+        # Default zones if none provided — 7 interpretable bands.
+        # Satisfaction convention: low x = deficit (scarcity), high x =
+        # superavit (slack). The deficit side is the wide operative region —
+        # that's where risk lives under basal neglect.
         if self.zones is None:
             self.zones = [
-                ZoneSpec("critical_superavit",   0.05, 0.08),
-                ZoneSpec("high_superavit",       0.13, 0.08),
-                ZoneSpec("moderate_superavit",   0.22, 0.08),
-                ZoneSpec("equilibrium",          0.30, 0.08),
-                ZoneSpec("moderate_deficit",     0.40, 0.08),
-                ZoneSpec("high_deficit",         0.55, 0.10),
-                ZoneSpec("critical_deficit",     0.80, 0.12),
+                ZoneSpec("critical_deficit",     0.20, 0.12),
+                ZoneSpec("high_deficit",         0.45, 0.10),
+                ZoneSpec("moderate_deficit",     0.60, 0.08),
+                ZoneSpec("equilibrium",          0.70, 0.08),
+                ZoneSpec("moderate_superavit",   0.78, 0.08),
+                ZoneSpec("high_superavit",       0.87, 0.08),
+                ZoneSpec("critical_superavit",   0.95, 0.08),
             ]
         self._last_zone = None  # Force first update() to emit zone.enter
 
@@ -249,7 +255,8 @@ class Drive(EventEmitter):
 
     @property
     def deviation(self) -> float:
-        """Signed deviation from set-point (positive = above ε = more deficit)."""
+        """Signed deviation from set-point (satisfaction convention:
+        negative = deficit, positive = superavit)."""
         return self.value - self.set_point
 
     @property
@@ -445,8 +452,7 @@ class Drive(EventEmitter):
             "tick":              tick,
         })
 
-    @staticmethod
-    def _resolve_satiation(name: str):
+    def _resolve_satiation(self, name: str):
         import math
         if name == "linear":
             return lambda v, a, r: a * r
@@ -455,33 +461,34 @@ class Drive(EventEmitter):
             return lambda v, a, r: r * (1.0 - math.exp(-a))
         elif name == "sigmoid":
             # steepest near set-point, gentle at extremes
-            return lambda v, a, r: r * a / (1.0 + abs(v - 0.30) * 5.0)
+            return lambda v, a, r: r * a / (1.0 + abs(v - self.set_point) * 5.0)
         else:
             raise ValueError(f"Unknown satiation policy: {name!r}. Use 'linear', 'saturating', 'sigmoid', or a callable.")
 
     def satiate(self, amount: float) -> None:
-        """Lower δ using the configured satiation function g.
+        """Raise satisfaction using the configured satiation function g.
 
-        Linear (default): value -= amount * satiation_rate
+        Linear (default): value += amount * satiation_rate
         Saturating: diminishing returns for large amounts
         Sigmoid: strongest effect near set-point
 
-        Emits Satiated with the applied reduction (the quality signal g —
-        how much the action actually reduced the deviation).
+        Emits Satiated with the deviation actually closed (the quality
+        signal g — how much the action reduced |x − x*|).
         """
         before = self.value
-        reduction = self._satiation_fn(self.value, amount, self.satiation_rate)
-        self.value = max(0.0, self.value - reduction)
+        increase = self._satiation_fn(self.value, amount, self.satiation_rate)
+        self.value = min(1.0, self.value + increase)
         self.emit(SATIATED, {
             "drive":      self.name,
             "amount":     round(amount, 4),
-            "reduction":  round(before - self.value, 4),
+            "reduction":  round(abs(before - self.set_point)
+                                - abs(self.value - self.set_point), 4),
             "value":      round(self.value, 4),
         })
 
     def deplete(self, amount: float) -> None:
-        """Raise δ by amount (resource consumed: tokens spent, error incurred)."""
-        self.value = min(1.0, self.value + amount)
+        """Lower x by amount (resource consumed: tokens spent, work done)."""
+        self.value = max(0.0, self.value - amount)
 
     def get_zone(self) -> str:
         """Dominant zone name (highest Gaussian membership)."""
@@ -543,27 +550,35 @@ class Drives:
     def stratified(cls, subset: Optional[list[str]] = None) -> "Drives":
         """Create all 10 canonical drives (or a named subset).
 
-        All drives use the new high=deficit semantics.
-        Non-metabolic drives use conservative defaults; their λ is small
+        Satisfaction convention (x = satisfaction level, deficit = low x):
+        metabolic is the canonical PULL drive — basal drift "recover"
+        (λ>0: slack replenishes when idle, work drains it). All others are
+        PUSH drives with basal drift "decay" (λ<0: satisfaction decays under
+        neglect — the need re-emerges).
+        Non-metabolic drives use conservative defaults; their |λ| is small
         since MVP2+ will tune them properly.
         """
         all_drives: list[Drive] = [
-            # S1 Material — active MVP1
+            # S1 Material — active MVP1, canonical pull
             Drive(
                 name="metabolic",
                 stratum=Stratum.MATERIAL,
-                value=0.30,
-                set_point=0.30,
+                category="pull",
+                basal_direction="recover",
+                value=0.70,
+                set_point=0.70,
                 lambda_rate=0.005,
                 satiation_rate=0.10,
                 description="Resource economy: tokens, energy, latency, API cost",
             ),
-            # S3 Biological — MVP2+
+            # S3 Biological — MVP2+, push (satisfaction decays under neglect)
             Drive(
                 name="safety",
                 stratum=Stratum.BIOLOGICAL,
-                value=0.30,
-                set_point=0.30,
+                category="push",
+                basal_direction="decay",
+                value=0.70,
+                set_point=0.70,
                 lambda_rate=0.003,
                 satiation_rate=0.15,
                 description="Integrity: error-avoidance, alignment, harm prevention",
@@ -571,8 +586,10 @@ class Drives:
             Drive(
                 name="epistemic",
                 stratum=Stratum.BIOLOGICAL,
-                value=0.30,
-                set_point=0.30,
+                category="push",
+                basal_direction="decay",
+                value=0.70,
+                set_point=0.70,
                 lambda_rate=0.002,
                 satiation_rate=0.20,
                 description="Curiosity: uncertainty reduction, information seeking",
@@ -580,8 +597,10 @@ class Drives:
             Drive(
                 name="coherence",
                 stratum=Stratum.BIOLOGICAL,
-                value=0.30,
-                set_point=0.30,
+                category="push",
+                basal_direction="decay",
+                value=0.70,
+                set_point=0.70,
                 lambda_rate=0.002,
                 satiation_rate=0.20,
                 description="Narrative integrity: contextual integration, consistency",
@@ -589,8 +608,10 @@ class Drives:
             Drive(
                 name="competence",
                 stratum=Stratum.BIOLOGICAL,
-                value=0.30,
-                set_point=0.30,
+                category="push",
+                basal_direction="decay",
+                value=0.70,
+                set_point=0.70,
                 lambda_rate=0.002,
                 satiation_rate=0.25,
                 description="Self-efficacy: mastery, skill development",
@@ -599,8 +620,10 @@ class Drives:
             Drive(
                 name="artifact_integrity",
                 stratum=Stratum.TECHNICAL,
-                value=0.20,
-                set_point=0.20,
+                category="push",
+                basal_direction="decay",
+                value=0.80,
+                set_point=0.80,
                 lambda_rate=0.001,
                 satiation_rate=0.10,
                 description="Cybersecurity/Safe AI: prompt-injection resistance, state integrity",
@@ -608,8 +631,10 @@ class Drives:
             Drive(
                 name="niche_construction",
                 stratum=Stratum.TECHNICAL,
-                value=0.30,
-                set_point=0.30,
+                category="push",
+                basal_direction="decay",
+                value=0.70,
+                set_point=0.70,
                 lambda_rate=0.002,
                 satiation_rate=0.15,
                 description="Creative capacity: modifying environment vs pure adaptation",
@@ -618,8 +643,10 @@ class Drives:
             Drive(
                 name="relatedness",
                 stratum=Stratum.SOCIAL,
-                value=0.30,
-                set_point=0.30,
+                category="push",
+                basal_direction="decay",
+                value=0.70,
+                set_point=0.70,
                 lambda_rate=0.003,
                 satiation_rate=0.25,
                 description="Bonding: trust, reciprocity, social connection",
@@ -627,8 +654,10 @@ class Drives:
             Drive(
                 name="autonomy",
                 stratum=Stratum.SOCIAL,
-                value=0.30,
-                set_point=0.30,
+                category="push",
+                basal_direction="decay",
+                value=0.70,
+                set_point=0.70,
                 lambda_rate=0.002,
                 satiation_rate=0.15,
                 description="Self-determination: agency with mutual respect",
@@ -637,8 +666,10 @@ class Drives:
             Drive(
                 name="meaning",
                 stratum=Stratum.TECHNOLOGICAL,
-                value=0.30,
-                set_point=0.30,
+                category="push",
+                basal_direction="decay",
+                value=0.70,
+                set_point=0.70,
                 lambda_rate=0.001,
                 satiation_rate=0.10,
                 description="Purpose: alignment with cultural-technological values",

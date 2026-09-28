@@ -36,13 +36,13 @@ class TestConsolidationWorker:
         worker.tick(agent, agent.drives.get("metabolic"), t=1)
         assert len(agent.pending_demands) == 2
 
-    def test_lowers_delta_on_process(self):
+    def test_raises_satisfaction_on_process(self):
         agent = make_agent(0.50)
         add_demands(agent, 1)
         before = agent.drives.get("metabolic").value
         worker = ConsolidationWorker(recovery_per_item=0.03)
         worker.tick(agent, agent.drives.get("metabolic"), t=1)
-        assert agent.drives.get("metabolic").value < before
+        assert agent.drives.get("metabolic").value > before
 
     def test_returns_false_on_empty_queue(self):
         agent = make_agent()
@@ -63,27 +63,27 @@ class TestConsolidationWorker:
 
 class TestWakeGuard:
     def test_wake_requires_both_conditions(self):
-        """Only wakes when BOTH δ ≤ threshold AND queue empty."""
+        """Only wakes when BOTH x ≥ threshold AND queue empty."""
         guard = WakeGuard()
 
         # Condition A met, B not met (queue non-empty)
-        agent = make_agent(delta=0.10)  # δ below wake_threshold=0.20
+        agent = make_agent(delta=0.90)  # x above wake_threshold=0.80
         add_demands(agent, 2)
         assert guard.check(agent, agent.drives.get("metabolic"), t=1) is False
 
-        # Condition B met, A not met (δ too high)
-        agent2 = make_agent(delta=0.50)  # δ above wake_threshold
+        # Condition B met, A not met (satisfaction too low)
+        agent2 = make_agent(delta=0.50)  # x below wake_threshold
         assert guard.check(agent2, agent2.drives.get("metabolic"), t=1) is False
 
     def test_wake_when_both_conditions_met(self):
         guard = WakeGuard()
-        agent = make_agent(delta=0.10)  # δ ≤ wake_threshold=0.20, queue empty
+        agent = make_agent(delta=0.90)  # x ≥ wake_threshold, queue empty
         result = guard.check(agent, agent.drives.get("metabolic"), t=10)
         assert result is True
 
     def test_wake_emits_cycle_completed_event(self):
         events = []
-        agent = make_agent(delta=0.10)
+        agent = make_agent(delta=0.90)
         agent.on("sleep.cycle.completed", events.append)
         guard = WakeGuard()
         guard.check(agent, agent.drives.get("metabolic"), t=7)
@@ -91,16 +91,16 @@ class TestWakeGuard:
         assert events[0]["tick"] == 7
 
     def test_wake_applies_delta_bonus(self):
-        agent = make_agent(delta=0.10)
+        agent = make_agent(delta=0.90)
         before = agent.drives.get("metabolic").value
         guard = WakeGuard()
         guard.check(agent, agent.drives.get("metabolic"), t=1)
-        assert agent.drives.get("metabolic").value < before  # bonus lowers δ further
+        assert agent.drives.get("metabolic").value > before  # bonus raises x further
 
 
 class TestMaybeWake:
     def test_does_not_wake_if_queue_not_empty(self):
-        agent = make_agent(delta=0.10)
+        agent = make_agent(delta=0.90)
         add_demands(agent, 3)
         from binsai.sleep import SleepConfig
         worker = ConsolidationWorker(config=SleepConfig(batch_size=1))
@@ -110,7 +110,7 @@ class TestMaybeWake:
         assert result is False
 
     def test_wakes_after_queue_drained(self):
-        agent = make_agent(delta=0.10)
+        agent = make_agent(delta=0.90)
         add_demands(agent, 1)
         from binsai.sleep import SleepConfig
         worker = ConsolidationWorker(config=SleepConfig(batch_size=1))

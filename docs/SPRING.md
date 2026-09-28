@@ -172,6 +172,67 @@ regímenes:
 Verificado (`λ=0.008, κ=0.04, w=0.25, θ=0.12, ρ=1.0`): cruza moderate t=12,
 high t=31, critical t=77, viabilidad t~105 → muere. Render: `magnet_spring.png`.
 
+## 4d. Regla de diseño de w — la primera procedencia real del parámetro
+
+La ablación (`docs/ABLATION-SPRING.md`, segunda pasada) mostró que con
+`w=0.25` el umbral de escape quedaba en `x≈0.93` — prácticamente sobre el
+límite de viabilidad `0.90`, así que ningún shock sobrevivable podía sacar al
+drive del alcance. **Eso no es un detalle de calibración: es el criterio que
+le faltaba al parámetro.**
+
+Regla de diseño: **w tiene que ser lo bastante corto como para que exista una
+región de no retorno dentro del rango viable.** Si el umbral de escape cae
+sobre o más allá del límite de viabilidad, el alcance finito no hace nada y
+el mecanismo degenera al pulsátil acotado.
+
+### Derivación — w como parámetro derivado
+
+El escape ocurre cuando la carga de tensión por tick cae por debajo de lo que
+la deriva agrega en el mismo intervalo: el umbral de escape `d*` (desviación
+a partir de la cual no hay retorno) resuelve
+
+```
+κ · d* · e^(−d*/w) = λ/ρ
+```
+
+El lado izquierdo es la tasa de carga a desviación `d` (cuánta tensión gana
+el resorte por tick); el derecho es la deriva efectiva por pulso de
+liberación. Despejando `w` en función del `d*` deseado:
+
+```
+w = d* / ln(ρ·κ·d* / λ)        — válido si ρ·κ·d* > λ
+```
+
+La restricción `ρ·κ·d* > λ` dice que `d*` debe estar más allá del techo del
+pulsátil acotado (`d_eq = λ/(ρκ)`) — si el punto de escape que elegís está
+dentro de la mesa oscilante, la ecuación no tiene solución porque ahí el
+agarre siempre gana.
+
+### Receta
+
+1. Elegí `d*` = dónde querés que arranque el no-retorno. Tiene que quedar
+   **dentro** del margen viable, con holgura: `d* ≈ 0.5–0.8 · (v_hi − x*)`
+   es una lectura razonable — más allá hay déficit recuperable, menos y el
+   shock ya era casi mortal de por sí.
+2. Verificá la restricción `ρ·κ·d* > λ` (si no, subí κ o revisá λ — el drive
+   escaparía incluso sin alcance finito).
+3. `w = d* / ln(ρ·κ·d*/λ)`.
+4. Chequeo de consistencia: `w > e·λ/(κρ)` garantiza que el régimen atrapado
+   existe (agarre máximo `κw/e` vence a la deriva — si no, la negligencia
+   mata siempre y w pierde sentido discriminatorio).
+
+Ejemplo (los parámetros de la ablación): `λ=0.002, κ=0.04, ρ=1.0, x*=0.30,
+v_hi=0.90`. Margen viable `0.60`; elegimos `d*=0.42` (70% del margen).
+Restricción: `0.04·0.42 = 0.0168 > 0.002` ✓. Entonces
+`w = 0.42 / ln(8.4) = 0.42/2.13 ≈ 0.197` — consistente con el `w=0.18` que
+produjo escape a `x≈0.65–0.70` en la ablación. Con `w=0.25` la fórmula
+predice `d*≈0.63` → `x≈0.93` > viabilidad → degenerado, exactamente lo que
+se observó.
+
+Con esta regla `w` deja de ser una perilla libre: **se deriva de dónde el
+diseñador declara que empieza el no-retorno**, que es una propiedad del
+dominio (a partir de qué déficit la recuperación propia ya no alcanza).
+
 ## 5. Implementación (adoptada en 0.3.0)
 
 - `Drive(spring="pulsatile")` como default nuevo; `spring="linear"` conserva el

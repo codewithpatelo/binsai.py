@@ -94,7 +94,7 @@ Full spec (ES): [`docs/EPA.md`](docs/EPA.md)
 
 ### Algedonic zones
 
-Each drive carries seven fuzzy bands symmetric around its set-point (`critical_superavit … equilibrium … critical_deficit`), with parametrizable centers, widths and hysteresis (`alpha_in`/`alpha_out`). Crossing a band emits `ZoneChanged`; crossing a viability limit emits `ViabilityBreached` — operational death, conjunctive over all drives.
+Each drive carries seven fuzzy bands around its set-point (`critical_deficit … equilibrium … critical_superavit` — satisfaction convention: **x = satisfaction level, deficit = low x**), with parametrizable centers, widths and hysteresis (`alpha_in`/`alpha_out`). Crossing a band emits `ZoneChanged`; crossing a viability limit emits `ViabilityBreached` — operational death, conjunctive over all drives.
 
 ### Observed variables: level + pace
 
@@ -200,9 +200,10 @@ from binsai import BinsaiAgent, Drives, Drive
 from binsai.action_registry import ActionSet, ActionSpec, _handler_satiate
 import random
 
-# A hunger drive: starts at 0.60 (hungry), set-point at 0.30 (satisfied)
-hunger = Drive(name="hunger", value=0.60, set_point=0.30,
-               kappa=0.02, lambda_rate=0.008)
+# A hunger drive: satisfaction starts low (0.40 = hungry), set-point at 0.70
+hunger = Drive(name="hunger", value=0.40, set_point=0.70,
+               kappa=0.02, basal_direction="decay", lambda_rate=0.008)
+# basal_direction="decay": satisfaction decays under neglect (hunger grows)
 
 # Two actions: go to the fridge (satiates hunger) or idle
 actions = ActionSet([
@@ -227,7 +228,7 @@ for tick in range(40):
     print(f"tick={tick:2d}  hunger={h.value:.2f}  zone={h.get_zone():10s}  {action}{marker}")
 ```
 
-Output shows the classic homeostatic sawtooth: hunger drifts up → fridge → drops → drifts up → ...
+Output shows the classic homeostatic sawtooth: satisfaction decays → fridge → jumps up → decays → ...
 
 ### 2. Socialization — a relatedness drive that re-engages
 
@@ -261,8 +262,8 @@ social_actions = ActionSet([
 
 config = WorldConfig(seed=42, dry_run_llm=("DEEPSEEK_API_KEY" not in os.environ),
     agents=[AgentConfig(name="HomeoBot", drive_names=["relatedness"],
-                        drive_configs=[{"name": "relatedness", "lambda_rate": 0.010,
-                                        "set_point": 0.30, "satiation_rate": 0.30}],
+                        drive_configs=[{"name": "relatedness", "basal_direction": "decay", "lambda_rate": 0.010,
+                                        "set_point": 0.70, "satiation_rate": 0.30}],
                         temperature=1.0)])
 w = World(config)
 for a in w.agents:
@@ -284,16 +285,18 @@ homeostatic middle ground keeps both variables in viable ranges.
 from binsai import Drive
 import random
 
-ctx = Drive(name="context_fill", value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.005)
-bl  = Drive(name="task_backlog", value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.004)
+ctx = Drive(name="context_slack", value=0.70, set_point=0.70, kappa=0.02,
+            basal_direction="decay", lambda_rate=0.005)  # slack erodes as work fills the window
+bl  = Drive(name="backlog_done",  value=0.70, set_point=0.70, kappa=0.02,
+            basal_direction="decay", lambda_rate=0.004)  # progress fades as tasks pile up
 
 ctx_traj, bl_traj = [], []
 for tick in range(300):
     ctx.update(tick); bl.update(tick)
-    # Act on whichever drive is farther from set-point
-    if abs(ctx.value - 0.30) > abs(bl.value - 0.30) and ctx.value > 0.30:
+    # Act on whichever drive is farther below set-point (deeper deficit)
+    if abs(ctx.value - 0.70) > abs(bl.value - 0.70) and ctx.value < 0.70:
         ctx.satiate(0.5); bl.deplete(0.02)    # compress → frees ctx, drops backlog
-    elif bl.value > 0.30:
+    elif bl.value < 0.70:
         bl.satiate(0.4); ctx.deplete(0.05)    # process → clears backlog, fills ctx
     ctx_traj.append(ctx.value); bl_traj.append(bl.value)
 
@@ -540,7 +543,7 @@ Spec completa: [`docs/EPA.md`](docs/EPA.md)
 
 ### Zonas algedónicas
 
-Cada necesidad tiene siete bandas difusas simétricas respecto del punto de equilibrio (`critical_superavit … equilibrium … critical_deficit`), con centros, anchos e histéresis (`alpha_in`/`alpha_out`) parametrizables. Cruzar una banda emite `ZoneChanged`; cruzar el límite de viabilidad emite `ViabilityBreached` — muerte operativa, conjuntiva sobre todas las necesidades.
+Cada necesidad tiene siete bandas difusas alrededor de su punto de equilibrio (`critical_deficit … equilibrium … critical_superavit` — convención de satisfacción: **x = nivel de satisfacción, déficit = x bajo**), con centros, anchos e histéresis (`alpha_in`/`alpha_out`) parametrizables. Cruzar una banda emite `ZoneChanged`; cruzar el límite de viabilidad emite `ViabilityBreached` — muerte operativa, conjuntiva sobre todas las necesidades.
 
 ### Variables observadas: nivel y ritmo
 
@@ -645,9 +648,10 @@ from binsai import BinsaiAgent, Drives, Drive
 from binsai.action_registry import ActionSet, ActionSpec, _handler_satiate
 import random
 
-# Un drive de hambre: arranca en 0.60 (hambriento), set-point en 0.30 (saciado)
-hambre = Drive(name="hambre", value=0.60, set_point=0.30,
-               kappa=0.02, lambda_rate=0.008)
+# Un drive de hambre: satisfacción arranca baja (0.40 = hambriento), set-point 0.70
+hambre = Drive(name="hambre", value=0.40, set_point=0.70,
+               kappa=0.02, basal_direction="decay", lambda_rate=0.008)
+# basal_direction="decay": la satisfacción decae con negligencia (el hambre crece)
 
 # Dos acciones: ir a la heladera (sacia el hambre) o no hacer nada
 acciones = ActionSet([
@@ -672,8 +676,8 @@ for tick in range(40):
     print(f"tick={tick:2d}  hambre={h.value:.2f}  zona={h.get_zone():10s}  {accion}{marca}")
 ```
 
-La salida muestra el clásico diente de sierra homeostático: el hambre sube →
-heladera → baja → sube → ...
+La salida muestra el clásico diente de sierra homeostático: la satisfacción decae →
+heladera → sube de golpe → vuelve a decaer → …
 
 ### 2. Socialización — un drive de relatedness que re-engagea
 
@@ -707,8 +711,8 @@ social_actions = ActionSet([
 
 config = WorldConfig(seed=42, dry_run_llm=("DEEPSEEK_API_KEY" not in os.environ),
     agents=[AgentConfig(name="HomeoBot", drive_names=["relatedness"],
-                        drive_configs=[{"name": "relatedness", "lambda_rate": 0.010,
-                                        "set_point": 0.30, "satiation_rate": 0.30}],
+                        drive_configs=[{"name": "relatedness", "basal_direction": "decay", "lambda_rate": 0.010,
+                                        "set_point": 0.70, "satiation_rate": 0.30}],
                         temperature=1.0)])
 w = World(config)
 for a in w.agents:
@@ -730,16 +734,18 @@ la ventana pero descarta trabajo pendiente. Ninguna estrategia extrema funciona
 from binsai import Drive
 import random
 
-ctx = Drive(name="ventana_contexto", value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.005)
-bl  = Drive(name="tareas_pendientes", value=0.30, set_point=0.30, kappa=0.02, lambda_rate=0.004)
+ctx = Drive(name="ventana_contexto", value=0.70, set_point=0.70, kappa=0.02,
+            basal_direction="decay", lambda_rate=0.005)  # la holgura decae al trabajar
+bl  = Drive(name="tareas_resueltas", value=0.70, set_point=0.70, kappa=0.02,
+            basal_direction="decay", lambda_rate=0.004)  # el progreso decae al llegar tareas
 
 ctx_traj, bl_traj = [], []
 for tick in range(300):
     ctx.update(tick); bl.update(tick)
-    # Actuar sobre el drive más alejado de su set-point
-    if abs(ctx.value - 0.30) > abs(bl.value - 0.30) and ctx.value > 0.30:
+    # Actuar sobre el drive con más déficit (más abajo de su set-point)
+    if abs(ctx.value - 0.70) > abs(bl.value - 0.70) and ctx.value < 0.70:
         ctx.satiate(0.5); bl.deplete(0.02)    # comprimir → libera ctx, pierde tareas
-    elif bl.value > 0.30:
+    elif bl.value < 0.70:
         bl.satiate(0.4); ctx.deplete(0.05)    # procesar → vacía backlog, llena ctx
     ctx_traj.append(ctx.value); bl_traj.append(bl.value)
 

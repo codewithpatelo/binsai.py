@@ -439,8 +439,8 @@ class BinsaiAgent(EventEmitter):
         has_demand = len(self.pending_demands) > 0
         # Use first available drive if the primary isn't found
         primary = drive or next(iter(self.drives), None)
-        delta      = primary.value if primary else 0.30
-        set_point  = primary.set_point if primary else 0.30
+        delta      = primary.value if primary else 0.70
+        set_point  = primary.set_point if primary else 0.70
 
         # Agent appraises next demand difficulty (LLM flash call, no thinking).
         # Cost is small but real — the drive pays for thinking before acting.
@@ -675,8 +675,8 @@ class BinsaiAgent(EventEmitter):
                                   drive: Optional[Drive],
                                   demand_difficulty: float) -> None:
         """Execute LLM call with model routing; convert telemetry → δ via budgets."""
-        delta     = drive.value     if drive else 0.30
-        set_point = drive.set_point if drive else 0.30
+        delta     = drive.value     if drive else 0.70
+        set_point = drive.set_point if drive else 0.70
         model_cfg = pick_model_for_state(
             execution.kind.value, delta, set_point, demand_difficulty
         )

@@ -74,19 +74,19 @@ class TestActionDistribution:
         for a, p in dist.items():
             assert abs(p - 1.0 / n) < 1e-9
 
-    def test_monotonic_sleep_increases_with_delta(self):
-        """Higher δ (more deficit) → higher sleep probability (with demand)."""
+    def test_monotonic_sleep_increases_with_deficit(self):
+        """Lower satisfaction x (deeper deficit) → higher sleep probability."""
         p_low  = compute_action_distribution(0.10, has_demand=True)["sleep"]
         p_mid  = compute_action_distribution(0.40, has_demand=True)["sleep"]
         p_high = compute_action_distribution(0.80, has_demand=True)["sleep"]
-        assert p_low < p_mid < p_high
-
-    def test_proact_decreases_with_delta_no_demand(self):
-        """Lower δ (more resources / oversated) → higher proact probability."""
-        p_low  = compute_action_distribution(0.05, has_demand=False)["proact"]
-        p_mid  = compute_action_distribution(0.30, has_demand=False)["proact"]
-        p_high = compute_action_distribution(0.80, has_demand=False)["proact"]
         assert p_low > p_mid > p_high
+
+    def test_proact_increases_with_slack_no_demand(self):
+        """Higher satisfaction x (slack / oversated) → higher proact."""
+        p_low  = compute_action_distribution(0.05, has_demand=False)["proact"]
+        p_mid  = compute_action_distribution(0.70, has_demand=False)["proact"]
+        p_high = compute_action_distribution(0.95, has_demand=False)["proact"]
+        assert p_low < p_mid < p_high
 
     def test_seeded_reproducibility(self):
         rng1 = random.Random(42)

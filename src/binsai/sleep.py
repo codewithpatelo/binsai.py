@@ -5,8 +5,9 @@ ConsolidationWorker:
     and applies δ recovery. Batch-accelerated so queue empties naturally.
 
 WakeGuard:
-    Tests the two AND conditions for waking:
-        (a) δ ≤ wake_threshold  — metabolic recovery
+    Tests the two AND conditions for waking (satisfaction convention —
+    x = satisfaction level, high = recovered):
+        (a) x ≥ wake_threshold  — metabolic recovery
         (b) queue_consolidated  — pending_demands is empty
 
     Both must be True simultaneously. If only one is met the agent stays asleep.
@@ -35,8 +36,8 @@ if TYPE_CHECKING:
 @dataclass
 class SleepConfig:
     """User-tunable sleep/consolidation parameters."""
-    wake_threshold:    float = 0.20   # δ must be ≤ this to wake
-    recovery_per_item: float = 0.03   # δ reduction per consolidated item
+    wake_threshold:    float = 0.80   # satisfaction x must be ≥ this to wake
+    recovery_per_item: float = 0.03   # satisfaction gained per consolidated item
     batch_size:        int   = 3      # items processed per sleep tick
     summarize_every:   int   = 3      # run LLM summarizer every N sleep ticks
 
@@ -47,7 +48,7 @@ _SUMMARY_EVERY_N_TICKS: int = 3   # fallback: run LLM summarizer every N sleep t
 class ConsolidationWorker:
     """Processes the demand queue during sleep, batch-accelerated.
 
-    Each processed item lowers δ by `recovery_per_item` (consolidation reward).
+    Each processed item raises x by `recovery_per_item` (consolidation reward).
     A passive recovery applies every tick regardless of queue state — sleep is
     restorative even with an empty queue.
     Periodically runs an LLM summarizer over working_memory + pending_demands
@@ -172,19 +173,20 @@ class ConsolidationWorker:
 class WakeGuard:
     """Tests AND-condition for waking from sleep.
 
-    Condition A: drive.value ≤ wake_threshold  — metabolic recovery
+    Condition A: drive.value ≥ wake_threshold  — metabolic recovery
+                 (satisfaction convention: high x = recovered)
     Condition B: agent.pending_demands is empty (queue fully consolidated)
 
     Both must be True in the same tick. Emits events on each condition state.
     Consolidation is batch-accelerated so queue empties naturally as drive recovers.
     """
 
-    def __init__(self, wake_threshold: float = 0.20) -> None:
+    def __init__(self, wake_threshold: float = 0.80) -> None:
         self.wake_threshold = wake_threshold
 
     def check(self, agent: "BinsaiAgent", drive: "Drive", t: int) -> bool:
         """Return True if both wake conditions are met (agent may transition to ACTIVE)."""
-        recovered    = drive.value <= self.wake_threshold
+        recovered    = drive.value >= self.wake_threshold
         consolidated = len(agent.pending_demands) == 0
 
         agent.emit("sleep.wake_check", {
@@ -202,7 +204,7 @@ class WakeGuard:
                 "tick":  t,
                 "delta": round(drive.value, 4),
             })
-            drive.satiate(0.5)  # wake bonus: consolidation reward ~−0.05 δ
+            drive.satiate(0.5)  # wake bonus: consolidation reward ~+0.05 x
             return True
 
         return False

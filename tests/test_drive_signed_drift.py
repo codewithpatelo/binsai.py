@@ -91,9 +91,18 @@ class TestSignedDrift:
         assert make_drive(kappa=0.0, lambda_rate=0.005).resting_level == 1.0
         assert make_drive(kappa=0.0, lambda_rate=-0.005).resting_level == 0.0
 
-    def test_negative_lambda_preserves_zone_semantics(self):
-        """Zones keep working on the surplus side (restorative drive)."""
-        d = make_drive(value=0.20, lambda_rate=-0.005, kappa=0.05)
+    def test_positive_lambda_reaches_superavit_zones(self):
+        """Recover drift (λ>0) settles above x* → superavit zones
+        (satisfaction convention: high x = slack). Custom zones aligned to
+        this drive's set_point=0.30."""
+        from binsai.drives import ZoneSpec
+        d = make_drive(value=0.20, lambda_rate=0.005, kappa=0.05, zones=[
+            ZoneSpec("critical_deficit",   0.05, 0.10),
+            ZoneSpec("equilibrium",        0.30, 0.10),
+            ZoneSpec("moderate_superavit", 0.45, 0.10),
+            ZoneSpec("critical_superavit", 0.90, 0.10),
+        ])
         for t in range(200):
             d.update(tick=t)
-        assert d.get_zone() in {"moderate_superavit", "high_superavit"}
+        # x_rest = 0.30 + 0.005/0.05 = 0.40 → superavit side of x*
+        assert "superavit" in d.get_zone()

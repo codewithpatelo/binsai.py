@@ -114,3 +114,42 @@ trayectoria marca cada liberación y proyecta con la política configurada.
   regulación desigual por lado
 - Relación entre el régimen atrapado y la homeostasis "exitosa": ¿la mesa
   oscilante estable es el modelo correcto de regulación efectiva?
+
+---
+
+## Lectura interpretativa — acción como condición de permanencia
+
+*(Sección interpretativa, no resultado experimental. Va marcada así a
+propósito: es una lectura del hallazgo, no el hallazgo mismo.)*
+
+Si la inacción lleva a la muerte operativa, un sistema que persiste
+necesariamente actúa. La acción deja de ser una función añadida y pasa a ser
+**condición de permanencia**. Y como el momento y la intensidad de la acción
+dependen del estado interno, la política es función de ese estado: eso es lo
+que el marco llama **albedrío delimitado** — el agente elige dentro de los
+límites que su propia viabilidad impone.
+
+Dos precisiones para que la lectura no sea teleológica ni exagerada:
+
+- **No es que el sistema "quiera" persistir**: es que los que no actúan no
+  persisten. Es un filtro, no un propósito. La selección opera sobre
+  comportamiento, no sobre intención.
+- **La negligencia muestra que actuar es NECESARIO para persistir, no que
+  toda acción sea agencia.** Un termostato también actúa para no morir. Lo
+  que agrega este marco es la deliberación: varias necesidades antagónicas,
+  no fungibles y sin escala común. Cuando el conflicto no se reduce a un
+  solo número, hay que decidir — y ahí aparece algo que sí merece el nombre
+  de agencia delimitada.
+
+Antecedentes a citar, para no presentarlo como nuevo:
+
+- **Ashby**, ultraestabilidad (Design for a Brain, 1952): el sistema viable
+  es el que mantiene variables esenciales dentro de límites — actuar es
+  parte de esa definición, no un extra.
+- **Varela**, autopoiesis y enacción: el sentido emerge de la precariedad
+  del ser vivo — una entidad que no puede morir no tiene nada en juego.
+
+Lo que podría ser aporte propio de esta línea no es la intuición — que es
+vieja y buena — sino mostrarla como **consecuencia de un mecanismo
+computable**: con esta ecuación y estos parámetros, la negligencia basal
+mata, y eso es verificable en un artefacto, no declamado en un párrafo.

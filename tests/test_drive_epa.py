@@ -100,7 +100,7 @@ class TestViabilityLimit:
 
 class TestCanonicalEvents:
     def test_zone_changed_payload(self):
-        d = Drive(name="hunger", value=0.30)
+        d = Drive(name="hunger", value=0.70)
         events = []
         d.on(ZONE_CHANGED, lambda p: events.append(p))
         d.update(tick=0)
@@ -110,6 +110,15 @@ class TestCanonicalEvents:
         assert e["zone"] == "equilibrium"
         assert e["side"] == "equilibrium"
         assert "membership" in e
+
+    def test_zone_changed_deficit_is_low_side(self):
+        """Satisfaction convention: deficit zones live at LOW x."""
+        d = Drive(name="hunger", value=0.15)
+        events = []
+        d.on(ZONE_CHANGED, lambda p: events.append(p))
+        d.update(tick=0)
+        assert events[0]["zone"] == "critical_deficit"
+        assert events[0]["side"] == "deficit"
 
     def test_satiated_event(self):
         d = Drive(name="hunger", value=0.60)

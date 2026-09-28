@@ -92,43 +92,54 @@ class TestAblation:
             assert agent.ablation_off is True
 
     def test_ablation_off_collapses_to_higher_delta(self):
-        """Over 300 ticks, unregulated agents accumulate more tokens and cost.
+        """Unregulated agents always respond_slow; regulated agents' action
+        mix is state-dependent (defer under deficit, proact under slack).
 
-        Regulated agents (ablation_off=False) defer/sleep when delta is high,
-        reducing total LLM calls. Unregulated agents always respond, spending
-        tokens regardless of state. The key metric is session tokens, not delta.
+        Note (satisfaction convention): the pull metabolic drive recovers
+        when idle, so slack accumulates and proacts legitimately spend
+        tokens — total tokens is no longer a valid invariant. The semantic
+        invariant is behavioural: regulation *modulates* the action mix.
         """
         from binsai.world.world import AgentConfig
-        agents = [
-            AgentConfig(name=f"A{i}", lambda_override=0.006, initial_delta=0.40)
-            for i in range(3)
-        ]
-        cfg_base = dict(lambda_demand=0.5, dry_run_llm=True, agents=agents)
+        import collections
 
-        w_reg   = World(WorldConfig(seed=42, ablation_off=False, **cfg_base))
-        w_unreg = World(WorldConfig(seed=42, ablation_off=True,  **cfg_base))
+        def run(off: bool):
+            agents = [
+                AgentConfig(name=f"A{i}", lambda_override=0.006, initial_delta=0.40)
+                for i in range(3)
+            ]
+            w = World(WorldConfig(seed=42, ablation_off=off,
+                                  lambda_demand=0.5, dry_run_llm=True,
+                                  agents=agents))
+            cnt = collections.Counter()
+            for _ in range(300):
+                frame = w.step()
+                for ev in frame.events:
+                    if ev.get("type") == "action.complete":
+                        cnt[ev["payload"].get("action", "?")] += 1
+            return cnt
 
-        for _ in range(300):
-            f_reg   = w_reg.step()
-            f_unreg = w_unreg.step()
+        unreg = run(True)
+        reg   = run(False)
 
-        reg_tok   = sum(a.session_tokens for a in f_reg.agents)
-        unreg_tok = sum(a.session_tokens for a in f_unreg.agents)
-        # Unregulated agents always respond → more tokens overall
-        assert unreg_tok > reg_tok, (
-            f"Expected unregulated tokens > regulated tokens, got {unreg_tok} vs {reg_tok}"
-        )
+        # Unregulated: every completed action is respond_slow, nothing else
+        assert set(unreg.keys()) == {"respond_slow"}
+        # Regulated: a real mix — regulation defers/idles/proacts, not just respond
+        non_respond = sum(v for k, v in reg.items()
+                          if k not in ("respond_fast", "respond_slow"))
+        assert non_respond > 0, f"Regulated agents showed no regulation: {dict(reg)}"
 
 
 class TestOversatedProactivity:
     def test_oversated_agent_proacts_more_than_sleeps(self):
-        """Agent starting oversated (δ very low, no demands) should proact most."""
+        """Agent starting oversated (satisfaction very high, no demands)
+        should proact most."""
         from binsai.world.world import AgentConfig
         config = WorldConfig(
             seed=0,
             lambda_demand=0.0,  # no external demands
             dry_run_llm=True,
-            agents=[AgentConfig(name="A", lambda_override=0.0, initial_delta=0.05)],
+            agents=[AgentConfig(name="A", lambda_override=0.0, initial_delta=0.95)],
         )
         w = World(config)
         action_counts: dict[str, int] = {}
