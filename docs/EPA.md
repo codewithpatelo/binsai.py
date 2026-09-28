@@ -32,7 +32,7 @@ x_i(t+1) = x_i(t) + λ_i(x_i, t) − r_i(t) + u_i(t) + Σ_j W_ij · (x_j(t) − 
 
 | Término | Nombre | Qué hace |
 |---|---|---|
-| `x_i` | nivel de la necesidad | el estado que se regula |
+| `x_i` | nivel de la necesidad | el estado que se regula — convención: **nivel de satisfacción** (x alto = satisfecho/holgado; x bajo = déficit). Un drive push decae hacia el déficit por negligencia basal; uno pull se repone hacia la holgura y lo drena el trabajo |
 | `x_i*` | punto de equilibrio (set-point) | el punto teórico de armonía |
 | `λ_i` | deriva basal | qué le pasa a la necesidad si no ocurre nada |
 | `r_i` | resorte elástico | tensión que el desplazamiento carga y la regulación libera |

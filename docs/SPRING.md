@@ -111,11 +111,30 @@ Parámetros:
 - **Las bandas algedónicas se cruzan arriba y abajo**: `ZoneChanged`, histéresis
   e `interrupt_on_zone` se ejercitan de verdad
 
-### Fisiología
+### Fundamento formal
 
-Las correcciones homeostáticas reales **son** pulsátiles (insulina, GnRH). El
-modelo coincide con osciladores de relajación / integrate-and-fire — hooks
-citables para el paper de autorregulación.
+El respaldo formal es el **oscilador de relajación / integrate-and-fire** — un
+mecanismo estándar, no un aporte propio. Detalle de interés para la línea: es la
+misma estructura que el gate del paper de debate, donde la equidad emergía del
+reset tras el disparo. Con este cambio, el resorte y el gate son el mismo
+mecanismo en dos lugares distintos de la ecuación.
+
+La pulsatilidad hormonal (insulina, GnRH) va como **analogía ilustrativa**, no
+como respaldo.
+
+### Procedencia de los parámetros
+
+Tres parámetros libres nuevos permiten producir casi cualquier forma de onda —
+riesgo de ajuste cosmético. Lectura de dominio para que dejen de ser perillas:
+
+| Param | Propiedad del dominio | Procedencia |
+|---|---|---|
+| `w` (spring_reach) | hasta qué desvío la regulación propia alcanza sin ayuda externa (a partir de cierto déficit, compactar o limpiar ya no alcanzan) | medible — *supuesto en defaults actuales* |
+| `ρ` (spring_release) | cuánto descarga realmente una acción típica de ese tipo | medible — *supuesto* |
+| `θ` (spring_threshold) | cuánta tensión hace falta para que valga la pena actuar; se relaciona con el costo mínimo de una acción | derivable del contrato de viabilidad — *supuesto* |
+
+Los defaults actuales son **supuestos**: quedan marcados hasta derivarlos de un
+contrato o medirlos en un escenario real (ver §6 ablación).
 
 ### Simulación (λ=0.003, κ=0.02, θ=0.10, ρ=1.0, x*=0.30)
 

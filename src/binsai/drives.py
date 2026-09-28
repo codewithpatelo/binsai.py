@@ -290,6 +290,30 @@ class Drive(EventEmitter):
         return self.value
 
     @property
+    def tension(self) -> float:
+        """Accumulated spring tension σ (pulsatile policy). 0 under "linear"."""
+        return self._tension
+
+    def pressure_components(self) -> dict:
+        """Traceable split of what is pushing this drive right now.
+
+        Three separate sources — kept distinct on purpose:
+            level:   observed-variable level pressure (where you are)
+            pace:    observed-variable pacing pressure (how fast it degrades)
+            tension: accumulated autonomous tension σ (where it trends under
+                     basal neglect — this is what makes satiation meaningful)
+        """
+        level = pace = None
+        for var in self.observed:
+            lp = var.last_level_pressure
+            if lp is not None and (level is None or lp > level):
+                level = lp
+            pp = var.last_pace_pressure
+            if pp is not None and (pace is None or pp > pace):
+                pace = pp
+        return {"level": level, "pace": pace, "tension": self._tension}
+
+    @property
     def history(self) -> list[tuple[int, float]]:
         """Trajectory as (tick, value) pairs, oldest first (read-only copy)."""
         return list(self._history)
