@@ -105,6 +105,11 @@ superávit por encima. Así la negligencia basal de un drive push (λ < 0)
 desciende por moderado → fuerte → crítico → viabilidad, que es donde la
 dinámica autónoma importa.
 
+> **Corte de comparabilidad**: antes de 0.3.0 la convención era inversa
+> (x = magnitud del déficit). Los experimentos anteriores a ese corte — la
+> ablación de resortes incluida — se leyeron en la convención vieja y no son
+> comparables punto a punto con corridas nuevas. Ver `CHANGELOG.md`.
+
 Más allá del rojo está el límite de viabilidad: cruzarlo es la muerte operativa. Es conjuntivo sobre todas las necesidades: basta una afuera para que el sistema deje de ser viable.
 
 Parámetros de las zonas:
