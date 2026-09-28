@@ -33,8 +33,15 @@ trabajo sostenible** — esa es la figura del paper.
 - **Acciones con vector de efectos**, incluidas las de preservación (liberar
   memoria, compactar contexto, bajar de modelo) — son las que muestran que
   inhibir no es quedarse quieto
-- **Demostración central**: con solo `metabolico` el agente converge a no hacer
-  nada; agregando `servicio` aparece el ritmo sostenible. La figura del paper.
+- **Demostración central — tres condiciones, una figura**: (1) solo
+  `metabolico` → la política óptima es no hacer nada (los recursos se reponen
+  solos, el agente converge a inacción); (2) solo `servicio` → el agente
+  trabaja hasta agotarse (cada acción drena recursos sin freno de
+  preservación, burn-out hacia viabilidad); (3) los dos → aparece el **ritmo
+  sostenible** — ráfagas de entrega alternadas con preservación. La tesis del
+  MVP2 en una imagen: ni la conservación sola ni el servicio solo son viables
+  a largo plazo — la viabilidad persistente emerge de administrar ambas
+  tensiones.
 
 ## Presión trazable (requisito transversal)
 
