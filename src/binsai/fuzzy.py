@@ -157,3 +157,47 @@ def sample_action(distribution: dict[str, float], rng: random.Random) -> str:
     actions = list(distribution.keys())
     weights = [distribution[a] for a in actions]
     return rng.choices(actions, weights=weights, k=1)[0]
+
+
+# ── Activation gate: hazard rate per unit time, not probability per tick ───────
+# "p(act) = 20% per tick" is a hidden hyperparameter: at 1-min ticks, the odds of
+# NOT acting in an hour are 0.8^60 ≈ 0; halving the tick changes the behaviour
+# without touching the equation. Modelled instead as a Poisson process:
+#
+#     p_tick = 1 − e^(−h·Δt)        h in activations per unit time
+#
+# Behaviour is invariant to Δt, and h has domain provenance: mean waiting time
+# to activation is 1/h, so calibration answers "in amber, how long should the
+# agent take to act, on average?" — if 20 min, h = 3/hour.
+#
+# The gate owns the act / not-act decision; the softmax above owns *which*
+# action. ACTIVE-state commitment and the post-action refractory period are
+# enforced in BinsaiAgent, not here.
+
+def activation_probability(hazard: float, dt: float = 1.0) -> float:
+    """Per-tick activation probability from a per-time-unit hazard rate.
+
+    p_tick = 1 − e^(−h·Δt). Returns 0 for h ≤ 0.
+    """
+    if hazard <= 0.0 or dt <= 0.0:
+        return 0.0
+    return -math.expm1(-hazard * dt)
+
+
+def activation_hazard(pressure: float, *, has_demand: bool = False,
+                      pending_labels: int = 0,
+                      h_pressure: float = 1.5, h_demand: float = 4.0,
+                      h_backlog: float = 0.3) -> float:
+    """Activation rate h (activations per unit time).
+
+    Driven by drive pressure p ∈ [0,1] — the same max(level, pace, autonomous)
+    signal the EPA already computes — plus explicit boosts:
+        has_demand:     h_demand   — pending work raises the rate sharply
+                        (default 4/unit → mean wait ≈ 0.25 units ≈ fast reply)
+        pending_labels: h_backlog each — planned work nudges proact
+    pressure=0, no demand, no backlog → h=0 → agent idles.
+    """
+    h = h_pressure * min(1.0, max(0.0, pressure))
+    if has_demand:
+        h += h_demand
+    return h + h_backlog * max(0, pending_labels)

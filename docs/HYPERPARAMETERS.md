@@ -14,6 +14,7 @@ derivado, medible, operativo, o libre por necesidad.
 | Zonas algedónicas | `θ_z`, histéresis (`alpha_in`, `alpha_out`), ancho `ω_z` | contrato; la histéresis por la granularidad de acción |
 | Presión autónoma | `η` (`eta`), `v_ref` | operativo — cuánto pesa la velocidad en la presión |
 | Pulso | `Δt` (`dt`) | operativo |
+| Activación | `h` (`activation_h_pressure`, `h_demand`, `h_backlog`), refractario (`activation_refractory`) | tasa por unidad de tiempo — `1/h` = espera media a actuar; pregunta de dominio, no probabilidad por tick (docs/ACTIVATION.md) |
 
 ## Libres por necesidad: `λ⁰`, `κ`, `f`
 

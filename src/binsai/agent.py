@@ -28,7 +28,8 @@ from .acl import ACLMessage, Mailbox, Performative
 from .drives import Drive, Drives
 from .events import EventEmitter
 from .lifecycle import FIPAState, LifecycleManager
-from .fuzzy import compute_action_distribution, sample_action
+from .fuzzy import (compute_action_distribution, sample_action,
+                    activation_probability, activation_hazard)
 from .actions import (
     ActionExecution,
     ActionKind,
@@ -91,6 +92,10 @@ class BinsaiAgent(EventEmitter):
         action_set:      Any                = None,
         interrupt_on_zone:   str            = "critical",
         terminate_on_breach: bool           = False,
+        activation_h_pressure: float        = 1.5,
+        activation_h_demand:   float        = 4.0,
+        activation_h_backlog:  float        = 0.3,
+        activation_refractory: float        = 1.0,
     ) -> None:
         import random as _random
 
@@ -165,6 +170,16 @@ class BinsaiAgent(EventEmitter):
 
         # Current in-flight action (None when idle or between actions)
         self.current_action: Optional[ActionExecution] = None
+
+        # Activation gate — hazard rate per unit time, not probability per
+        # tick: p_tick = 1 − e^(−h·Δt). h_* params are rates (mean wait = 1/h);
+        # activation_refractory is a dead-time after acting so actions don't
+        # fire in bursts. _refractory_until is stored in time units (t·Δt).
+        self.activation_h_pressure = activation_h_pressure
+        self.activation_h_demand   = activation_h_demand
+        self.activation_h_backlog  = activation_h_backlog
+        self.activation_refractory = activation_refractory
+        self._refractory_until: float = 0.0
 
         # Last action taken this tick (for UI — includes single-tick actions)
         self.last_action: Optional[str] = None
@@ -464,6 +479,24 @@ class BinsaiAgent(EventEmitter):
         else:
             demand_difficulty = 0.0
 
+        # ── Activation gate: hazard rate per unit time ──
+        # p(act this tick) = 1 − e^(−h·Δt) — invariant to tick size; h has
+        # domain meaning (mean wait = 1/h). Refractory dead-time prevents
+        # action bursts. The gate owns act/not-act; the softmax owns which.
+        dt = getattr(primary, "dt", 1.0) or 1.0
+        if t * dt < self._refractory_until:
+            return "idle"
+        h = activation_hazard(
+            getattr(primary, "pressure", 0.0) or 0.0,
+            has_demand=has_demand,
+            pending_labels=len(self.pending_task_labels),
+            h_pressure=self.activation_h_pressure,
+            h_demand=self.activation_h_demand,
+            h_backlog=self.activation_h_backlog,
+        )
+        if self._rng.random() >= activation_probability(h, dt):
+            return "idle"
+
         distribution = compute_action_distribution(
             delta=delta,
             has_demand=has_demand,
@@ -474,6 +507,13 @@ class BinsaiAgent(EventEmitter):
             pending_labels=len(self.pending_task_labels),
             action_set=self.action_set,
         )
+        # The gate already decided to act — drop idle and renormalize so the
+        # softmax picks *which* action, conditioned on acting.
+        distribution.pop("idle", None)
+        total_p = sum(distribution.values())
+        if total_p <= 0:
+            return "idle"
+        distribution = {a: p / total_p for a, p in distribution.items()}
         chosen_name = sample_action(distribution, self._rng)
 
         return self._start_chosen_action(chosen_name, drive, t, demand_difficulty=demand_difficulty)
@@ -775,6 +815,13 @@ class BinsaiAgent(EventEmitter):
         # Track deferred actions for session KPI
         if execution.kind == ActionKind.DEFER:
             self.session_deferred += 1
+
+        # Refractory dead-time after acting — in time units (t·Δt), so the
+        # activation gate can't fire again until it elapses.
+        if self.activation_refractory > 0:
+            dt = getattr(next(iter(self.drives), None), "dt", 1.0) or 1.0
+            self._refractory_until = max(
+                self._refractory_until, t * dt + self.activation_refractory)
 
         self.remember({
             "type":   "action",

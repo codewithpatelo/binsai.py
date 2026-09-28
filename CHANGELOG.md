@@ -32,6 +32,31 @@ autónoma cambió de tensión a velocidad. La ablación v2 está en
 `docs/ABLATION-EPA-V2.md` con predicciones escritas antes de la corrida y
 paridad de condiciones iniciales verificada en tests.
 
+### Activación por tasa de riesgo (docs/ACTIVATION.md)
+
+- La decisión de actuar era `1 − p(idle)` por tick — una probabilidad por
+  pulso es un hiperparámetro oculto ligado a Δt. Ahora es un proceso de
+  Poisson: `p_tick = 1 − e^(−h·Δt)` (`fuzzy.activation_hazard`,
+  `activation_probability`). `h` es por unidad de tiempo — `1/h` = espera
+  media a actuar, pregunta de dominio.
+- `h = h_pressure·p + h_demand·𝟙{demanda} + h_backlog·backlog` — se alimenta
+  de `drive.pressure`. Params del agente: `activation_h_pressure`,
+  `activation_h_demand`, `activation_h_backlog`, `activation_refractory`.
+- **Período refractario** tras cada acción completada y **compromiso**
+  mientras ejecuta (ACTIVE no re-sortea — ya estaba, queda declarado).
+- Una vez que el gate dispara, el softmax elige *qué* acción con `idle`
+  fuera del conjunto — el gate posee el si/no, el softmax el cuál.
+- **Bug corregido**: `drive.pressure` solo reflejaba variables observadas —
+  la fuente autónoma nunca entraba, y sin sensores quedaba `None`. Ahora
+  `update()` pliega `max(nivel, ritmo, autónoma)` siempre.
+- Cambio de comportamiento medible: la frecuencia de acciones por tick baja
+  en régimen calmo (antes el softmax decidía aún sin presión). Misma forma
+  de ruptura que el resto de v2 — las comparaciones de KPIs entre versiones
+  deben notarlo.
+- Direcciones documentadas (no implementadas): aprendizaje de `g` por
+  promedio móvil con antecedente en Keramati & Gutkin, y mutación bajo
+  estrés prolongado (ultraestabilidad de Ashby) — `docs/DIRECTIONS.md`.
+
 ## 0.3.0 (unreleased on PyPI)
 
 ### CORTE DE COMPARABILIDAD — convención de signo invertida

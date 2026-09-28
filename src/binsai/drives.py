@@ -685,6 +685,13 @@ class Drive(EventEmitter):
         # Observed variables: need pressure = max over valid sensors (§4.8)
         if self.observed:
             self._poll_observed(tick)
+        # Spec: p = max(p_level, p_pace, p_autonomous). Fold the autonomous
+        # source in unconditionally — drives without wired sensors would
+        # otherwise report pressure=None forever even under large deviation.
+        comps = self.pressure_components()
+        all_p = [v for v in (comps["level"], comps["pace"], comps["autonomous"])
+                 if v is not None]
+        self.pressure = max(all_p) if all_p else self.pressure
 
         new_zone = self._zone_with_hysteresis()
         memberships = self.zone_memberships()
