@@ -32,7 +32,9 @@ TICKS_A, TICKS_B, SHOCK_T, SHOCK_U = 900, 700, 150, 0.35
 
 def make_drive(name, spring, reach):
     return Drive(name=name, value=CFG["set_point"], spring=spring,
-                 spring_reach=reach, **CFG)
+                 spring_reach=reach, history_limit=0, **CFG)
+    # history_limit=0: keep the full trajectory — silent truncation made the
+    # magnet look like it started from a different initial condition.
 
 
 def run(drive, ticks, shock=None):
@@ -390,13 +392,16 @@ def fig_pressure_split():
     rows = []   # (t, level, pace, tension, value)
     for t in range(TICKS):
         # work bursts: light t<100, heavy 100-200, idle 200+
+        # drain 0.008/tick is deliberate: drive dips to moderate_deficit and
+        # recovers — this figure shows WHERE pressure comes from, so the
+        # scenario must not die (a breach would distract from the sources).
         rate = 40.0 if t < 100 else (220.0 if t < 200 else 30.0)
         consumed += rate
         budget.observe(t, consumed)
         if 100 <= t < 200:
-            d.deplete(0.02)          # work drains the metabolic drive
+            d.deplete(0.008)         # work drains the metabolic drive
         elif t == 220:
-            d.deplete(0.08)          # small late shock
+            d.deplete(0.05)          # small late shock
         d.update(t)
         pc = d.pressure_components()
         rows.append((t, pc["level"], pc["pace"], pc["tension"], d.value))
@@ -487,10 +492,13 @@ def fig_pressure_split():
     g.append('</svg>')
 
     body = ('<div class="cfg">metabolico (pull/recover λ=+0.004) observa '
-            '"tokens" (budget 30k/300t). Fases: liviano t&lt;100, ráfaga '
-            't=100–200 (drena el drive vía deplete), reposo t&gt;200. '
-            'Las tres fuentes no se confunden: level y pace vienen del sensor, '
-            'σ/θ de la dinámica autónoma.</div>' + "".join(g))
+            '"tokens" (budget 40k/300t, logistic). Fases: liviano t&lt;100, '
+            'ráfaga t=100–200 (drena el drive vía deplete 0.008/t — baja a '
+            'moderate_deficit y se recupera, sin cruzar viabilidad), reposo '
+            't&gt;200. <b>Esta figura muestra de dónde viene la presión, no '
+            'si el agente regula bien.</b> Las tres fuentes no se confunden: '
+            'level y pace vienen del sensor, σ/θ de la dinámica autónoma.</div>'
+            + "".join(g))
     data = {"rows": rows, "config": {"budget": 30000, "window": TICKS,
             "phases": {"light": [0, 100], "burst": [100, 200], "idle": [200, 300]}},
             "note": "tension plotted as |sigma|/theta"}

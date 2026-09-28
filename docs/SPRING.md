@@ -233,6 +233,29 @@ Con esta regla `w` deja de ser una perilla libre: **se deriva de dónde el
 diseñador declara que empieza el no-retorno**, que es una propiedad del
 dominio (a partir de qué déficit la recuperación propia ya no alcanza).
 
+### Principio — un resorte más fuerte NO es la respuesta a una muerte
+
+Si un drive cruza viabilidad, la tentación es subir κ hasta que nadie muera.
+**Eso es el amortiguador lineal que descartamos**: un resorte que siempre te
+trae de vuelta reproduce exactamente el bug original — bajo negligencia basal
+el sistema se estaciona en zona segura, no hacer nada queda impune, y las
+zonas rojas vuelven a ser ornamentales. **La muerte por negligencia tiene que
+ser posible**: es la condición que convierte a la acción en condición de
+permanencia (ver `docs/FINDING-RESORTE.md`, lectura interpretativa).
+
+Lo que se ajusta cuando un escenario muere "demasiado fácil" no es la fuerza
+del resorte sino **dónde queda la región de no retorno** — y eso se deriva
+del contrato con la regla de w de §4d, no de subir κ:
+
+- Si la muerte llega porque `λ > κρw/e` (deriva domina): el parámetro a
+  revisar es λ contra el dominio — ¿de verdad la satisfacción se degrada así
+  de rápido sin acción? — o el contrato de viabilidad.
+- Si la muerte llega porque un shock sobrevivable cruzó `d*`: revisar si `d*`
+  quedó bien ubicado dentro del margen viable — no mover κ.
+- Si el agente murió *actuando* (la política eligió acciones y aun así no
+  alcanzó): el escenario excede la capacidad de regulación — es un resultado
+  válido, rotularlo como tal, no taparlo con un resorte más fuerte.
+
 ## 5. Implementación (adoptada en 0.3.0)
 
 - `Drive(spring="pulsatile")` como default nuevo; `spring="linear"` conserva el

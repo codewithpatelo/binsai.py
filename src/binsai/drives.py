@@ -132,6 +132,8 @@ class Drive(EventEmitter):
     alpha_out:      float = 1.0        # hysteresis: exit old zone when μ ≤ this
     viability:      tuple[float, float] = (0.0, 1.0)  # viability limits
     observed:       list  = field(default_factory=list)  # list[ObservedVariable]
+    history_limit:  int   = 500   # ticks retained in .history; 0 = keep all.
+    # Silent truncation distorts comparative figures — set 0 for experiments.
 
     # Internal: not part of public API
     _history: list[tuple[int, float]] = field(default_factory=list, repr=False)
@@ -362,8 +364,8 @@ class Drive(EventEmitter):
         drift_amount = self._drift_fn(self.value, self.set_point, tick, self.lambda_rate, self.drift_k)
         self.value = max(0.0, min(1.0, self.value + spring_delta + drift_amount + coupling))
         self._history.append((tick, self.value))
-        if len(self._history) > 500:
-            self._history = self._history[-500:]
+        if self.history_limit and len(self._history) > self.history_limit:
+            self._history = self._history[-self.history_limit:]
 
         # Coupled event — the deviation of another need moved this one via W
         if abs(coupling) > 1e-9:
