@@ -46,6 +46,56 @@ def test_variants_share_identical_initial_state():
         assert d.history == ref.history == []
 
 
+# ── EPA v2 ablation arms (docs/ABLATION-EPA-V2.md) ────────────────────────
+# Same shared CFG; w derived by the w-rule for d*=0.35.
+_V2_W = Drive.design_spring_reach(0.05, 0.001, 0.35)
+V2_CFG = dict(
+    value=0.70, set_point=0.70, kappa=0.05, lambda_rate=0.001,
+    basal_direction="decay", viability=(0.10, 0.98),
+    damping=0.10, dt=1.0, allostatic_recovery=0.002,
+    spring_threshold=0.12, spring_release=1.0,
+)
+V2_VARIANTS = [
+    ("linear",      dict(spring="linear")),
+    ("pulsatile",   dict(spring="pulsatile", spring_reach=float("inf"))),
+    ("magnet_f0",   dict(spring="magnetic-2nd", spring_reach=_V2_W,
+                         spring_fatigue=0.0)),
+    ("magnet_f010", dict(spring="magnetic-2nd", spring_reach=_V2_W,
+                         spring_fatigue=0.10)),
+]
+
+
+def _make_v2(name, extra):
+    return Drive(name=name, **{**V2_CFG, **extra})
+
+
+def test_v2_variants_share_identical_initial_state():
+    """All EPA v2 ablation arms start from the same (x, v) state."""
+    drives = [_make_v2(n, e) for n, e in V2_VARIANTS]
+    ref = drives[0]
+    for d in drives[1:]:
+        assert (d.value, d.velocity) == (ref.value, ref.velocity)
+        assert d.set_point == ref.set_point
+        assert d.lambda_rate == ref.lambda_rate
+        assert d.viability == ref.viability
+        assert d.dt == ref.dt
+        assert d.damping == ref.damping
+        assert d.allostatic_load == ref.allostatic_load == 0.0
+        assert [(z.name, z.center, z.width) for z in d.zones] == \
+               [(z.name, z.center, z.width) for z in ref.zones]
+        assert d.history == ref.history == []
+
+
+def test_v2_variants_differ_only_in_dynamics():
+    """The only varying fields are the spring mode and fatigue coefficient."""
+    drives = [_make_v2(n, e) for n, e in V2_VARIANTS]
+    for a, b in zip(drives, drives[1:]):
+        for f in ("value", "velocity", "set_point", "kappa", "lambda_rate",
+                  "damping", "dt", "allostatic_recovery", "viability",
+                  "spring_threshold", "spring_release"):
+            assert getattr(a, f) == getattr(b, f), f
+
+
 def test_variants_differ_only_in_spring():
     drives = [_make(n, s, w) for n, s, w in VARIANTS]
     spring_fields = {"spring", "spring_reach"}

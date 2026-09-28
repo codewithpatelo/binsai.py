@@ -45,7 +45,13 @@ class TestDriveSemantics:
         assert d.value > before
 
     def test_update_increases_by_lambda(self):
-        d = make_metabolic(0.60)
+        """Basal drift alone (κ=0, no spring) moves x by λ·Δt² on the first
+        pulse under second-order dynamics (v += a·Δt, then x += v·Δt)."""
+        with pytest.warns(UserWarning):   # κ=0 → grip 0 < λ⁰: drift wins
+            d = Drive(name="metabolic", stratum=Stratum.MATERIAL,
+                      category="pull", basal_direction="recover",
+                      value=0.60, set_point=0.70, lambda_rate=0.005,
+                      kappa=0.0)
         d.update(tick=1)
         assert abs(d.value - (0.60 + d.lambda_rate)) < 1e-9
 

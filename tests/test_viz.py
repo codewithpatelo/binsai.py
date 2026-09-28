@@ -50,8 +50,9 @@ class TestTimelineSvg:
         lin.spring = "linear"
         proj = _ghost(lin, 200)
         assert abs(proj[-1] - lin.resting_level) < 0.02
-        # pulsatile default: sawtooth — the projection must oscillate
+        # legacy pulsatile: sawtooth — the projection must oscillate
         pul = make_trajectory(beta=0.005)
+        pul.spring = "pulsatile"
         gp = _ghost(pul, 120)
         diffs = [gp[i + 1] - gp[i] for i in range(len(gp) - 1)]
         assert any(d < -1e-6 for d in diffs) and any(d > 1e-6 for d in diffs)

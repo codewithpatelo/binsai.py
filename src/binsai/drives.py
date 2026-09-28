@@ -123,10 +123,23 @@ class Drive(EventEmitter):
     drift_period:   int   = 120        # circadian period in ticks
     drift_k:        float = 1.0        # exponential drift coefficient
     satiation:      str   = "linear"   # "linear" | "saturating" | "sigmoid" | callable
-    spring:         str   = "pulsatile"  # "pulsatile" | "linear" | callable
-    spring_threshold: float = 0.10     # θ — tension σ that triggers a release pulse
-    spring_release: float = 1.0        # ρ — fraction of σ discharged per pulse
+    spring:         str   = "magnetic-2nd"  # "magnetic-2nd" (EPA v2, default)
+    #                                       | "pulsatile" | "linear" | callable (legacy)
+    spring_threshold: float = 0.10     # θ — pulsatile tension σ release pulse (legacy)
+    spring_release: float = 1.0        # ρ — fraction of σ discharged per pulse (legacy)
     spring_reach:   float = 0.30       # w — grip peaks at |d|=w then decays (inf = no escape)
+
+    # ── EPA v2 — second-order magnetic spring (docs/paov2.tex) ──
+    velocity:       float = 0.0        # v — second component of the (x, v) state
+    dt:             float = 1.0        # Δt — pulse duration
+    damping:        float = 0.05       # c — brakes accumulated velocity (0 = undamped)
+    spring_fatigue: float = 0.0        # f — allostatic wear: κ_ef = κ·e^(−f·Λ)
+    allostatic_recovery: float = 0.01  # ρ_Λ — Λ recovery rate under rest
+    drift_shape:    str   = "linear"   # φ(|d|): "linear"(=1) | "exponential" | "saturating"
+    drift_gamma:    float = 1.0        # γ — exponential drift-shape coefficient
+    drift_s:        float = 0.10       # s_i — saturating drift-shape scale
+    eta:            float = 0.5        # η — velocity weight in autonomous pressure
+    v_ref:          float = 0.10       # reference velocity for p_aut normalization
     zones:          Optional[list[ZoneSpec]] = None  # None = default 7 algedonic bands
     alpha_in:       float = 0.0        # hysteresis: μ needed to enter a new zone
     alpha_out:      float = 1.0        # hysteresis: exit old zone when μ ≤ this
@@ -144,6 +157,8 @@ class Drive(EventEmitter):
     _tension: float = field(default=0.0, repr=False)  # pulsatile spring tension σ
     _history_dropped: int = field(default=0, repr=False)
     _history_warned:  bool = field(default=False, repr=False)
+    _allostatic:    float = field(default=0.0, repr=False)  # Λ — allostatic load
+    _sustained:     dict[str, float] = field(default_factory=dict, repr=False)  # u stimuli
 
     def __post_init__(self) -> None:
         self._init_bus()
@@ -169,13 +184,16 @@ class Drive(EventEmitter):
             self._drift_fn = self._resolve_drift(self.drift)
         else:
             self._drift_fn = self.drift
-        # Resolve spring policy: "linear" (legacy damper) or "pulsatile"
-        # (tension σ integrates displacement, discharges past threshold θ)
+        # Resolve spring policy: "magnetic-2nd" (EPA v2 default), "linear"
+        # (legacy damper), "pulsatile" (legacy integrate-and-release)
         if isinstance(self.spring, str):
-            if self.spring not in ("linear", "pulsatile"):
+            if self.spring not in ("magnetic-2nd", "linear", "pulsatile"):
                 raise ValueError(
-                    f"spring must be 'pulsatile', 'linear' or a callable, got {self.spring!r}"
+                    f"spring must be 'magnetic-2nd', 'pulsatile', 'linear' or a callable, "
+                    f"got {self.spring!r}"
                 )
+            if self.spring == "magnetic-2nd":
+                self._validate_magnetic_regime()
         if not (0.0 < self.spring_release <= 1.0):
             raise ValueError("spring_release must be in (0, 1]")
         if self.spring_reach is not None and not (
@@ -220,6 +238,124 @@ class Drive(EventEmitter):
         else:
             raise ValueError(f"Unknown drift policy: {name!r}. Use 'constant', 'linear', 'exponential', 'circadian', or a callable.")
 
+    # ── EPA v2 helpers ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def design_spring_reach(kappa: float, lambda0: float,
+                            d_star: float) -> float:
+        """w design rule (paov2.tex §3): reach that places the no-return
+        point at the desired d*.
+
+            w = d* / ln(κ·d* / λ⁰)
+
+        Valid only when κ·d*/λ⁰ > e (i.e. the resulting w < d*, so d* sits on
+        the far branch of the grip curve and is the no-return point, not the
+        near equilibrium root). Pick d* strictly inside the viable margin —
+        at the margin the reach degenerates (see _validate_magnetic_regime).
+        """
+        import math
+        lam0 = abs(lambda0)
+        if lam0 == 0.0:
+            raise ValueError("w-rule needs λ⁰ ≠ 0 — no drift, no escape regime")
+        ratio = kappa * d_star / lam0
+        if ratio <= math.e:
+            raise ValueError(
+                f"w-rule infeasible: κ·d*/λ⁰={ratio:.3f} ≤ e — a no-return "
+                f"point at d*={d_star} is unreachable (the far branch needs "
+                f"d* > w). Move d* further out or raise κ."
+            )
+        w = d_star / math.log(ratio)
+        if w >= d_star:  # defensive: same condition, stated geometrically
+            raise ValueError("w-rule gave w ≥ d* — d* would be the near root")
+        return w
+
+    @staticmethod
+    def _lambert_w_minus1(z: float) -> float:
+        """Lower (real) branch of Lambert W for z ∈ [−1/e, 0).
+
+        Newton on w·e^w = z from the standard −1-branch asymptotic seed
+        ln(−z) − ln(−ln(−z)). The package ships no scipy dependency.
+        """
+        import math
+        if not (-1.0 / math.e <= z < 0.0):
+            raise ValueError(f"Lambert W₋₁ domain is [−1/e, 0), got z={z}")
+        w = math.log(-z) - math.log(-math.log(-z))
+        for _ in range(50):
+            ew = math.exp(w)
+            f = w * ew - z
+            denom = ew * (w + 1.0)
+            w -= f / denom
+            if abs(f) < 1e-14:
+                break
+        return w
+
+    def _drift_phi(self, abs_d: float) -> float:
+        """Basal-drift shape φ(|d|) — see paov2.tex §2.1."""
+        import math
+        if self.drift_shape == "linear":
+            return 1.0
+        if self.drift_shape == "exponential":
+            return math.exp(self.drift_gamma * abs_d)
+        if self.drift_shape == "saturating":
+            return 1.0 - math.exp(-abs_d / self.drift_s)
+        raise ValueError(
+            f"drift_shape must be 'linear', 'exponential' or 'saturating', "
+            f"got {self.drift_shape!r}"
+        )
+
+    def no_return_point(self) -> Optional[float]:
+        """d* — the no-return deviation of the magnetic spring (paov2 eq. d*).
+
+        Far root of κ·d·e^(−d/w) = |λ⁰|, closed form via Lambert W₋₁:
+            d* = −w · W₋₁(−|λ⁰| / (κ·w))
+        None when the drift dominates everywhere (G ≤ |λ⁰|): then no stable
+        regime exists and every deviation escapes.
+        """
+        import math
+        lam0 = abs(self.lambda_rate)
+        w = self.spring_reach
+        if lam0 == 0.0 or w is None or w == float("inf") or w <= 0:
+            return None
+        grip = self.kappa * w / math.e      # G at Λ=0
+        if grip <= lam0:
+            return None                     # drift always wins — no d*
+        return -w * self._lambert_w_minus1(-lam0 / (self.kappa * w))
+
+    def _validate_magnetic_regime(self) -> None:
+        """w design rule (paov2.tex §3): d* must land INSIDE the viable range.
+
+        If the no-return point falls on or beyond the viability limit, finite
+        reach does nothing — the spring degenerates to ever-growing grip.
+        """
+        import math, warnings
+        lam0 = abs(self.lambda_rate)
+        w = self.spring_reach
+        if lam0 == 0.0 or w is None or w == float("inf"):
+            return
+        grip = self.kappa * w / math.e
+        if grip <= lam0:
+            warnings.warn(
+                f"Drive '{self.name}': grip κw/e={grip:.4f} ≤ |λ⁰|={lam0:.4f} — "
+                f"drift dominates everywhere, basal negligence always kills "
+                f"(no stable regime). Raise κ·w or lower |λ⁰|.",
+                stacklevel=3,
+            )
+            return
+        d_star = self.no_return_point()
+        # the side the basal drift pushes toward: decay → lo, recover → hi
+        lo_v, hi_v = self.viability
+        bound = lo_v if self.lambda_rate < 0 else hi_v
+        margin = abs(bound - self.set_point)
+        if d_star is not None and d_star >= margin:
+            warnings.warn(
+                f"Drive '{self.name}': no-return point d*={d_star:.3f} ≥ viable "
+                f"margin {margin:.3f} (|{bound} − x*|={self.set_point}) — finite "
+                f"reach never acts inside the viable range; the spring "
+                f"degenerates to ever-growing grip. Lower w per the w-rule "
+                f"(docs/SPRING.md §4d).",
+                stacklevel=3,
+            )
+
     def _spring_charge(self, deviation: float) -> float:
         """Pulsatile tension charge rate: κ·d·e^(−|d|/w) — the "magnet" curve.
 
@@ -260,6 +396,84 @@ class Drive(EventEmitter):
             return -release
         return 0.0
 
+    def _update_second_order(self, tick: int, coupling: float) -> None:
+        """EPA v2 dynamics (docs/paov2.tex): state (x, v), acceleration
+
+            a = λ(x,t) − S(x,t) − c·v + u + Σ_j W_ij·(x_j − x*_j)
+
+        with the fatigable magnetic spring
+
+            S = κ_ef·d·e^(−|d|/w),   κ_ef = κ·e^(−f·Λ),
+            Λ' = |d| − ρ_Λ·Λ        (allostatic load)
+
+        Sustained stimuli enter `a` via `u` (see sustain()); impulsive
+        stimuli jump x directly via impulse(). The basal drift is
+        σ·λ⁰·φ(|d|) — it applies every pulse, stimuli or not.
+        """
+        import math
+        d = self.value - self.set_point
+        # allostatic load: accumulates exposure to |d|, recovers with rest
+        self._allostatic += (abs(d) - self.allostatic_recovery
+                             * self._allostatic) * self.dt
+        self._allostatic = max(0.0, self._allostatic)
+        k_eff = self.kappa * math.exp(-self.spring_fatigue * self._allostatic)
+        lam = self.lambda_rate * self._drift_phi(abs(d))
+        u = sum(self._sustained.values())
+
+        # Semi-implicit Euler is unstable for ω·h ≳ 2 (ω ≈ √κ). Subdivide
+        # the tick so each substep stays inside the stable region — dt is
+        # the pulse length callers see; h is the integration step.
+        omega = math.sqrt(k_eff) if k_eff > 0 else 0.0
+        n_sub = max(1, math.ceil(omega * self.dt / 0.5)) if omega else 1
+        h = self.dt / n_sub
+        w = self.spring_reach
+        finite = w is not None and w != float("inf")
+        for _ in range(n_sub):
+            d = self.value - self.set_point
+            S = k_eff * d * math.exp(-abs(d) / w) if finite else k_eff * d
+            a = lam - S - self.damping * self.velocity + u + coupling
+            self.velocity += a * h
+            x_new = self.value + self.velocity * h
+            if x_new > 1.0:
+                # inelastic wall: hitting the clip dissipates outward velocity
+                x_new = 1.0
+                self.velocity = min(0.0, self.velocity)
+            elif x_new < 0.0:
+                x_new = 0.0
+                self.velocity = max(0.0, self.velocity)
+            self.value = x_new
+
+    # ── Stimuli: two channels (paov2.tex §2.3) ───────────────────────────────
+
+    def sustain(self, name: str, alpha: float) -> None:
+        """Register a sustained stimulus contributing alpha to u (acceleration
+        channel). Call again with the same name to update; use
+        :meth:`release_stimulus` to stop it."""
+        self._sustained[name] = float(alpha)
+
+    def release_stimulus(self, name: str) -> None:
+        self._sustained.pop(name, None)
+
+    def impulse(self, delta: float, expected: Optional[float] = None) -> float:
+        """Impulsive stimulus: instant level jump x ← x + Δ.
+
+        Returns the quality signal g = Δ_observed / Δ_expected — what actually
+        happened vs what the model predicted. A stimulus can execute and
+        satiate nothing (g=0); that is where the satiation problem lives.
+        """
+        before = self.value
+        self.value = max(0.0, min(1.0, self.value + delta))
+        observed = self.value - before
+        g = (observed / expected) if expected else 1.0
+        self.emit(SATIATED, {
+            "drive":     self.name,
+            "delta":     round(delta, 6),
+            "observed":  round(observed, 6),
+            "expected":  expected,
+            "g":         round(g, 4) if expected else None,
+        })
+        return g
+
     @property
     def deviation(self) -> float:
         """Signed deviation from set-point (satisfaction convention:
@@ -283,6 +497,34 @@ class Drive(EventEmitter):
         """
         if callable(self.spring):
             return self.value  # user-defined spring: unknowable a priori
+        if self.spring == "magnetic-2nd":
+            import math
+            if self.lambda_rate == 0:
+                return self.set_point
+            # fatigue f>0 means grip decays under sustained load → eventual
+            # death by negligence even inside the stable regime
+            lam0 = abs(self.lambda_rate)
+            w = self.spring_reach
+            grip = (self.kappa * w / math.e) if (w and w != float("inf")) else float("inf")
+            bound = 1.0 if self.lambda_rate > 0 else 0.0
+            if self.spring_fatigue > 0 or lam0 >= grip:
+                return bound
+            # stable regime: oscillates; centre ≈ balance λ⁰ ≈ κ·d·e^(−d/w)
+            d_star = self.no_return_point()
+            if d_star is None:
+                return bound
+            # the near root (oscillation centre) is the W0 branch
+            z = -lam0 / (self.kappa * w)
+            # W0 via Newton from seed -z
+            wv = -z
+            for _ in range(50):
+                ew = math.exp(wv)
+                f_ = wv * ew - z
+                wv -= f_ / (ew * (wv + 1.0))
+                if abs(f_) < 1e-14:
+                    break
+            d_eq = -w * wv
+            return max(0.0, min(1.0, self.set_point + d_eq))
         if self.spring == "pulsatile":
             import math
             if self.lambda_rate == 0:
@@ -308,14 +550,30 @@ class Drive(EventEmitter):
         """Accumulated spring tension σ (pulsatile policy). 0 under "linear"."""
         return self._tension
 
+    @property
+    def allostatic_load(self) -> float:
+        """Λ — accumulated exposure to deviation (magnetic-2nd spring)."""
+        return self._allostatic
+
+    @property
+    def kappa_eff(self) -> float:
+        """κ_ef = κ·e^(−f·Λ) — grip after allostatic wear."""
+        import math
+        return self.kappa * math.exp(-self.spring_fatigue * self._allostatic)
+
     def pressure_components(self) -> dict:
         """Traceable split of what is pushing this drive right now.
 
         Three separate sources — kept distinct on purpose:
-            level:   observed-variable level pressure (where you are)
-            pace:    observed-variable pacing pressure (how fast it degrades)
-            tension: accumulated autonomous tension σ (where it trends under
-                     basal neglect — this is what makes satiation meaningful)
+            level:      observed-variable level pressure (where you are)
+            pace:       observed-variable pacing pressure (how fast it degrades)
+            autonomous: pressure from the drive's own dynamics. Under
+                        magnetic-2nd (paov2.tex §4.1):
+                            |d|/|L−x*| + η·|v|/v_ref
+                        — velocity fills the role tension σ had in the
+                        pulsatile formulation: at equal deviation, a system
+                        accelerating toward deficit is worse off than one
+                        at rest. Under legacy springs it is |σ|.
         """
         level = pace = None
         for var in self.observed:
@@ -325,7 +583,16 @@ class Drive(EventEmitter):
             pp = var.last_pace_pressure
             if pp is not None and (pace is None or pp > pace):
                 pace = pp
-        return {"level": level, "pace": pace, "tension": self._tension}
+        if self.spring == "magnetic-2nd":
+            d = self.value - self.set_point
+            lo_v, hi_v = self.viability
+            bound = lo_v if d < 0 else hi_v
+            margin = abs(bound - self.set_point) or 1e-9
+            autonomous = abs(d) / margin + self.eta * abs(self.velocity) / self.v_ref
+        else:
+            autonomous = abs(self._tension)
+        return {"level": level, "pace": pace, "tension": self._tension,
+                "autonomous": autonomous}
 
     @property
     def history(self) -> list[tuple[int, float]]:
@@ -371,9 +638,14 @@ class Drive(EventEmitter):
         agent's dot-syntax re-emission (e.g. "zone.enter" → drive.hunger.<zone>).
         """
         old_zone = self._last_zone
-        spring_delta = self._spring_step(tick)
-        drift_amount = self._drift_fn(self.value, self.set_point, tick, self.lambda_rate, self.drift_k)
-        self.value = max(0.0, min(1.0, self.value + spring_delta + drift_amount + coupling))
+        if self.spring == "magnetic-2nd":
+            self._update_second_order(tick, coupling)
+        else:
+            spring_delta = self._spring_step(tick)
+            drift_amount = self._drift_fn(self.value, self.set_point, tick,
+                                        self.lambda_rate, self.drift_k)
+            self.value = max(0.0, min(1.0,
+                                      self.value + spring_delta + drift_amount + coupling))
         self._history.append((tick, self.value))
         if self.history_limit and len(self._history) > self.history_limit:
             dropped = len(self._history) - self.history_limit
@@ -592,8 +864,11 @@ class Drives:
                 basal_direction="recover",
                 value=0.70,
                 set_point=0.70,
-                lambda_rate=0.005,
+                lambda_rate=0.001,
                 satiation_rate=0.10,
+                kappa=0.10,
+                damping=0.10, spring_fatigue=0.05,
+                spring_reach=Drive.design_spring_reach(0.10, 0.001, 0.20),
                 description="Resource economy: tokens, energy, latency, API cost",
             ),
             # S3 Biological — MVP2+, push (satisfaction decays under neglect)
@@ -604,8 +879,10 @@ class Drives:
                 basal_direction="decay",
                 value=0.70,
                 set_point=0.70,
-                lambda_rate=0.003,
+                lambda_rate=0.001,
                 satiation_rate=0.15,
+                damping=0.10, spring_fatigue=0.10,
+                spring_reach=Drive.design_spring_reach(0.05, 0.001, 0.30),
                 description="Integrity: error-avoidance, alignment, harm prevention",
             ),
             Drive(
@@ -615,8 +892,10 @@ class Drives:
                 basal_direction="decay",
                 value=0.70,
                 set_point=0.70,
-                lambda_rate=0.002,
+                lambda_rate=0.0006,
                 satiation_rate=0.20,
+                damping=0.10, spring_fatigue=0.10,
+                spring_reach=Drive.design_spring_reach(0.05, 0.0006, 0.30),
                 description="Curiosity: uncertainty reduction, information seeking",
             ),
             Drive(
@@ -626,8 +905,10 @@ class Drives:
                 basal_direction="decay",
                 value=0.70,
                 set_point=0.70,
-                lambda_rate=0.002,
+                lambda_rate=0.0006,
                 satiation_rate=0.20,
+                damping=0.10, spring_fatigue=0.10,
+                spring_reach=Drive.design_spring_reach(0.05, 0.0006, 0.30),
                 description="Narrative integrity: contextual integration, consistency",
             ),
             Drive(
@@ -637,8 +918,10 @@ class Drives:
                 basal_direction="decay",
                 value=0.70,
                 set_point=0.70,
-                lambda_rate=0.002,
+                lambda_rate=0.0006,
                 satiation_rate=0.25,
+                damping=0.10, spring_fatigue=0.10,
+                spring_reach=Drive.design_spring_reach(0.05, 0.0006, 0.30),
                 description="Self-efficacy: mastery, skill development",
             ),
             # S4 Technical — MVP2+
@@ -649,8 +932,10 @@ class Drives:
                 basal_direction="decay",
                 value=0.80,
                 set_point=0.80,
-                lambda_rate=0.001,
+                lambda_rate=0.0004,
                 satiation_rate=0.10,
+                damping=0.10, spring_fatigue=0.08,
+                spring_reach=Drive.design_spring_reach(0.05, 0.0004, 0.30),
                 description="Cybersecurity/Safe AI: prompt-injection resistance, state integrity",
             ),
             Drive(
@@ -660,8 +945,10 @@ class Drives:
                 basal_direction="decay",
                 value=0.70,
                 set_point=0.70,
-                lambda_rate=0.002,
+                lambda_rate=0.0006,
                 satiation_rate=0.15,
+                damping=0.10, spring_fatigue=0.10,
+                spring_reach=Drive.design_spring_reach(0.05, 0.0006, 0.30),
                 description="Creative capacity: modifying environment vs pure adaptation",
             ),
             # S5 Social — MVP3+
@@ -672,8 +959,10 @@ class Drives:
                 basal_direction="decay",
                 value=0.70,
                 set_point=0.70,
-                lambda_rate=0.003,
+                lambda_rate=0.001,
                 satiation_rate=0.25,
+                damping=0.10, spring_fatigue=0.10,
+                spring_reach=Drive.design_spring_reach(0.05, 0.001, 0.30),
                 description="Bonding: trust, reciprocity, social connection",
             ),
             Drive(
@@ -683,8 +972,10 @@ class Drives:
                 basal_direction="decay",
                 value=0.70,
                 set_point=0.70,
-                lambda_rate=0.002,
+                lambda_rate=0.0006,
                 satiation_rate=0.15,
+                damping=0.10, spring_fatigue=0.10,
+                spring_reach=Drive.design_spring_reach(0.05, 0.0006, 0.30),
                 description="Self-determination: agency with mutual respect",
             ),
             # S6 Technological — MVP3+
@@ -695,8 +986,10 @@ class Drives:
                 basal_direction="decay",
                 value=0.70,
                 set_point=0.70,
-                lambda_rate=0.001,
+                lambda_rate=0.0004,
                 satiation_rate=0.10,
+                damping=0.10, spring_fatigue=0.08,
+                spring_reach=Drive.design_spring_reach(0.05, 0.0004, 0.30),
                 description="Purpose: alignment with cultural-technological values",
             ),
         ]

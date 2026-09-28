@@ -71,13 +71,55 @@ Binsai is to the PAO what scikit-learn is to statistical models, and to self-reg
 
 ---
 
-## The Proaction Operator (PAO)
+## The Proaction Operator (PAO) — EPA v2
 
-Binsai implements the **PAO** (ES: *Ecuación Proacción*) — a state equation that models *viability*, not optimization. For each drive `i`, on every pulse:
+Binsai implements the **PAO** (ES: *Ecuación Proacción*) — a state equation that models *viability*, not optimization. In EPA v2 (`docs/paov2.tex`) each drive `i` carries the **second-order state** `(x_i, v_i)` — satisfaction level and its velocity:
+
+$$
+v_i(t+\Delta t) = v_i(t) + a_i(t)\,\Delta t,
+\qquad
+x_i(t+\Delta t) = x_i(t) + v_i(t+\Delta t)\,\Delta t
+$$
+
+$$
+a_i(t) =
+\underbrace{\lambda_i(x_i,t)}_{\text{basal drift}}
+- \underbrace{S_i(x_i,t)}_{\text{magnetic spring}}
+- \underbrace{c_i\,v_i(t)}_{\text{damping}}
++ \underbrace{u_i(t)}_{\text{sustained stimuli}}
++ \sum_{j\ne i} W_{ij}\bigl(x_j(t)-x_j^*\bigr)
+$$
+
+with the **fatigable magnetic spring**:
+
+$$
+S_i(x_i,t) = \kappa_i^{\mathrm{ef}}(t)\, d_i(t)\, e^{-|d_i(t)|/w_i},
+\qquad
+\kappa_i^{\mathrm{ef}}(t) = \kappa_i\, e^{-f_i \Lambda_i(t)},
+\qquad
+\frac{d\Lambda_i}{dt} = |d_i| - \rho_i^{\Lambda}\Lambda_i
+$$
+
+where $d_i = x_i - x_i^*$. Two complementary decays make the regulation non-trivial:
+
+- **`w` (finite reach)** — grip fades with *distance*: a large enough shock escapes to the viability boundary. It is derived, not chosen: `d* = −w·W₋₁(−λ⁰/(κ_ef·w))` and `w = d*/ln(κ_ef·d*/λ⁰)`, with `d*` required strictly inside the viable margin.
+- **`f` (fatigue)** — grip fades with *time*: sustained deviation accumulates allostatic load `Λ` and wears `κ_ef` until basal drift wins. Without `f`, a neglected system oscillates forever near equilibrium.
+
+The system is viable while every drive stays inside its contract `K_i = [L_i^-, L_i^+]`. Leaving `K` is operational death.
 
 ```
-x_i(t+1) = x_i(t) + λ_i(x_i,t) − r_i(t) + u_i(t) + Σ_j W_ij·(x_j(t) − x_j*)
+drive.sustain("work", alpha)    # sustained stimuli → acceleration channel u
+drive.impulse(delta, expected)  # impulsive stimuli → instant jump x += Δ,
+                                # returns g = Δ_observed/Δ_expected
 ```
+
+`linear` and `pulsatile` springs remain available as legacy arms for controlled ablation (`docs/ABLATION-EPA-V2.md`). Results from pre-v2 dynamics are not point-by-point comparable — see `CHANGELOG.md`.
+
+<p align="center">
+  <img src="./epa_v2_viability.gif" alt="EPA v2 viability space: 3 needs, algedonic zones, shock beyond reach, cascade to the K wall" width="640" />
+  <br>
+  <sub><i>Three needs in viability space: oscillation inside the green zone, a shock beyond magnetic reach, cascade to the K wall. Real Binsai data — <code>tools_manim_epa_v2.py</code>.</i></sub>
+</p>
 
 | Term | Name | What it does |
 |---|---|---|

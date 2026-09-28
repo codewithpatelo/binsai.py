@@ -124,22 +124,42 @@ def _ghost(drive: Drive, n: int) -> list[float]:
     """
     x = drive.value
     sig = drive._tension
+    v = drive.velocity           # magnetic-2nd state
+    allo = drive._allostatic     # Λ — allostatic load
     t0 = drive.history[-1][0] if drive.history else 0
     out = [x]
     for i in range(1, n + 1):
         d = x - drive.set_point
         if callable(drive.spring):
             release = drive.spring(d)
+            drift = drive._drift_fn(x, drive.set_point, t0 + i,
+                                    drive.lambda_rate, drive.drift_k)
+            x = _clip01(x + release + drift)
+        elif drive.spring == "magnetic-2nd":
+            import math
+            allo += (abs(d) - drive.allostatic_recovery * allo) * drive.dt
+            allo = max(0.0, allo)
+            k_eff = drive.kappa * math.exp(-drive.spring_fatigue * allo)
+            w = drive.spring_reach
+            S = k_eff * d * (math.exp(-abs(d) / w)
+                             if w and w != float("inf") else 1.0)
+            lam = drive.lambda_rate * drive._drift_phi(abs(d))
+            a = lam - S - drive.damping * v
+            v += a * drive.dt
+            x = _clip01(x + v * drive.dt)
         elif drive.spring == "linear":
             release = -drive.kappa * d
+            drift = drive._drift_fn(x, drive.set_point, t0 + i,
+                                    drive.lambda_rate, drive.drift_k)
+            x = _clip01(x + release + drift)
         else:
             sig += drive._spring_charge(d)
             release = -drive.spring_release * sig if abs(sig) >= drive.spring_threshold else 0.0
             if release:
                 sig += release
-        drift = drive._drift_fn(x, drive.set_point, t0 + i,
-                                drive.lambda_rate, drive.drift_k)
-        x = _clip01(x + release + drift)
+            drift = drive._drift_fn(x, drive.set_point, t0 + i,
+                                    drive.lambda_rate, drive.drift_k)
+            x = _clip01(x + release + drift)
         out.append(x)
     return out
 

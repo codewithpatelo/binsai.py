@@ -420,6 +420,14 @@ class BinsaiAgent(EventEmitter):
         for msg in self.mailbox.drain_inbox():
             self._enqueue_from_message(msg)
 
+        # A critical agent that ticks again has left the dwell alarm — reset
+        # to WAITING first (critical→active is not a valid transition; the
+        # reset path is critical→waiting, then normal flow resumes).
+        if self._lifecycle.is_critical():
+            self._lifecycle.transition(
+                FIPAState.WAITING, cause="reset: alarm cleared", tick=t,
+            )
+
         # A multi-tick action left in flight (e.g. after CRITICAL dwell) resumes
         if self.current_action is not None:
             self._lifecycle.transition(

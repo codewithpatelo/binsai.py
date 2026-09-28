@@ -1,0 +1,291 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish,es-noquoting]{babel}
+\usepackage{amsmath,amssymb,booktabs,geometry,microtype}
+\geometry{margin=2.6cm}
+
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\Real}{\mathbb{R}}
+
+\title{Ecuación Proacción, versión 2\\[2pt]
+\large Dinámica de segundo orden con resorte magnético fatigable}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Estado y actualización}
+
+Un sistema viable tiene $N$ necesidades. El estado de la necesidad $i$ es el par
+$(x_i, v_i)$, donde $x_i$ es el \emph{nivel de satisfacción} y $v_i$ su velocidad de cambio.
+Cada pulso de duración $\Delta t$ actualiza las dos componentes:
+
+\begin{align}
+  v_i(t+\Delta t) &= v_i(t) + a_i(t)\,\Delta t, \label{eq:vel}\\
+  x_i(t+\Delta t) &= x_i(t) + v_i(t+\Delta t)\,\Delta t . \label{eq:pos}
+\end{align}
+
+La aceleración reúne los cinco términos de la ecuación:
+
+\begin{equation}
+  a_i(t) \;=\;
+  \underbrace{\lambda_i\!\left(x_i,t\right)}_{\text{deriva basal}}
+  \;-\;\underbrace{S_i\!\left(x_i,t\right)}_{\text{resorte magnético}}
+  \;-\;\underbrace{c_i\,v_i(t)}_{\text{freno}}
+  \;+\;\underbrace{u_i(t)}_{\text{estímulos}}
+  \;+\;\underbrace{\sum_{j\neq i} W_{ij}\,\big(x_j(t)-x_j^{*}\big)}_{\text{acoplamiento}} .
+  \label{eq:epa}
+\end{equation}
+
+Escribimos $d_i(t) = x_i(t) - x_i^{*}$ para el desvío respecto del punto de equilibrio
+$x_i^{*}$. Convención de signo: $x_i$ mide \emph{satisfacción}, de modo que $d_i<0$ es
+déficit y $d_i>0$ superávit.
+
+La deriva basal se aplica en todo pulso, haya o no estímulos. Es el término que vuelve
+al sistema no reactivo: aun con todas las variables observadas dentro de rango, la
+presión crece en la dirección basal de cada necesidad.
+
+\section{Los términos}
+
+\subsection{Deriva basal}
+
+\begin{equation}
+  \lambda_i(x_i,t) \;=\; \sigma_i \, \lambda_i^{0}\, \varphi_i\!\left(|d_i|\right),
+  \qquad \sigma_i \in \{-1,+1\},
+\end{equation}
+
+donde $\sigma_i$ es la \emph{dirección basal} ($-1$ decae, $+1$ recupera), $\lambda_i^0>0$
+su magnitud, y $\varphi_i$ su \emph{forma}. Los casos usados:
+
+\begin{equation}
+  \varphi_i(s) =
+  \begin{cases}
+    1 & \text{lineal (por defecto)},\\[2pt]
+    e^{\,\gamma_i s} & \text{exponencial},\\[2pt]
+    1 - e^{-s/s_i} & \text{saturante}.
+  \end{cases}
+\end{equation}
+
+Con forma lineal la deriva es constante; con forma exponencial se acelera con el desvío
+y puede producir un punto de inflexión que la lineal no tiene.
+
+\subsection{Resorte magnético}
+
+El resorte atrae hacia el punto de equilibrio con una fuerza que \emph{pierde agarre con
+la distancia} y \emph{se desgasta con el uso}:
+
+\begin{equation}
+  S_i(x_i,t) \;=\; \kappa_i^{\mathrm{ef}}(t)\; d_i(t)\; e^{-|d_i(t)|/w_i},
+  \qquad
+  \kappa_i^{\mathrm{ef}}(t) \;=\; \kappa_i \, e^{-f_i \Lambda_i(t)} .
+  \label{eq:spring}
+\end{equation}
+
+La \emph{carga alostática} $\Lambda_i$ acumula exposición al desvío, con recuperación
+opcional de tasa $\rho_i^{\Lambda}$:
+
+\begin{equation}
+  \frac{\dd \Lambda_i}{\dd t} \;=\; |d_i(t)| \;-\; \rho_i^{\Lambda}\,\Lambda_i(t).
+\end{equation}
+
+El término $-c_i v_i$ de \eqref{eq:epa} frena la velocidad acumulada. Con $c_i=0$ el
+sistema oscila sin amortiguar; valores pequeños de $c_i$ suavizan la oscilación sin
+alterar los regímenes de la Sección~\ref{sec:regimenes}.
+
+\subsection{Estímulos y señal de calidad}
+
+Los estímulos entran por dos canales. Los \emph{sostenidos} (trabajo en curso, consumo
+continuo) actúan sobre la aceleración:
+
+\begin{equation}
+  u_i(t) \;=\; \sum_{s} \alpha_{is}\, \mathbb{1}\!\left[s \text{ activo en } t\right],
+  \qquad \alpha_{is} \gtrless 0 .
+\end{equation}
+
+Los \emph{impulsivos} (una entrega aprobada, una limpieza de disco) actúan como saltos
+instantáneos del nivel:
+
+\begin{equation}
+  x_i(t^{+}) \;=\; x_i(t^{-}) + \Delta_{i}^{(k)} .
+\end{equation}
+
+Con $\alpha_{is}>0$ o $\Delta_i>0$ el estímulo \emph{sacia}; con signo negativo
+\emph{vacía}. Una misma acción tiene un vector de efectos sobre todas las necesidades:
+compactar el contexto libera memoria y consume tokens.
+
+La \emph{señal de calidad} $g^{(k)}_i \ge 0$ mide cuánto de la saciedad esperada
+efectivamente ocurrió:
+
+\begin{equation}
+  g^{(k)}_i \;=\; \frac{\Delta_i^{\text{observado}}}{\Delta_i^{\text{esperado}}} .
+\end{equation}
+
+Una acción es \emph{adaptativa} respecto de la necesidad que la originó si $g_i>0$.
+La distinción importa: $\Delta^{\text{esperado}}$ es lo que el modelo predice y
+$g$ es lo que ocurrió. Una acción puede ejecutarse y no satisfacer nada.
+
+\subsection{Acoplamiento}
+
+$W \in \Real^{N\times N}$, con $W_{ii}=0$. El término $W_{ij}(x_j-x_j^{*})$ traslada el
+desvío de una necesidad a la aceleración de otra. Es acoplamiento \emph{por estado}, y se
+evalúa en cada pulso; el acoplamiento \emph{por evento} se implementa aparte, mediante
+suscripción a los cambios de zona.
+
+\section{Regímenes}
+\label{sec:regimenes}
+
+El agarre del resorte, $|S_i|$ como función de $|d_i|$, crece hasta $|d_i|=w_i$ y decae
+después. Su valor máximo es
+
+\begin{equation}
+  G_i \;=\; \frac{\kappa_i^{\mathrm{ef}}\, w_i}{e} .
+\end{equation}
+
+Comparando $G_i$ con la magnitud de la deriva se obtienen dos regímenes cualitativamente
+distintos:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Condición} & \textbf{Comportamiento bajo negligencia basal}\\
+\midrule
+$G_i < \lambda_i^{0}$ & la deriva gana siempre: el sistema cae hasta el límite y muere\\
+$G_i > \lambda_i^{0}$ & regulación estable: oscila cerca del equilibrio y no muere solo\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+En el segundo régimen existe un \emph{punto de no retorno} $d_i^{*}$: el desvío a partir
+del cual el agarre ya no alcanza para compensar la deriva. Es la raíz lejana de
+$\kappa_i^{\mathrm{ef}} d\, e^{-d/w_i} = \lambda_i^{0}$, que en forma cerrada resulta
+
+\begin{equation}
+  d_i^{*} \;=\; -\,w_i\, W_{-1}\!\left(-\frac{\lambda_i^{0}}{\kappa_i^{\mathrm{ef}} w_i}\right),
+  \label{eq:dstar}
+\end{equation}
+
+con $W_{-1}$ la rama inferior de la función $W$ de Lambert. Equivalentemente, dado el
+punto de no retorno deseado, el alcance se despeja como
+
+\begin{equation}
+  w_i \;=\; \frac{d_i^{*}}{\ln\!\left(\kappa_i^{\mathrm{ef}} d_i^{*} / \lambda_i^{0}\right)} .
+  \label{eq:w}
+\end{equation}
+
+\paragraph{Regla de diseño.} El punto de no retorno debe caer \emph{dentro} del rango
+viable, con margen:
+\begin{equation}
+  d_i^{*} \;<\; \big|L_i^{-} - x_i^{*}\big| .
+\end{equation}
+Si $d_i^{*}$ cae sobre el límite de viabilidad o más allá, el alcance finito no produce
+ningún efecto y el resorte degenera en uno de agarre siempre creciente. Esta condición
+convierte a $w_i$ en un parámetro \emph{derivado} del contrato, no elegido.
+
+\paragraph{Muerte por negligencia.} Con $f_i>0$ el agarre se desgasta: un sistema que
+regula al principio pierde capacidad con la exposición sostenida, y la negligencia basal
+termina en muerte operativa aunque exista régimen estable. Los dos decaimientos son
+complementarios: $w_i$ hace perder agarre \emph{con la distancia}, $f_i$ lo hace perder
+\emph{con el tiempo}.
+
+\section{Presión, zonas y viabilidad}
+
+\subsection{Presión}
+
+La presión de la necesidad $i$ combina tres fuentes, que se mantienen trazables por
+separado:
+
+\begin{equation}
+  p_i \;=\; \max\Big\{\, p_i^{\text{nivel}},\;\; p_i^{\text{ritmo}},\;\; p_i^{\text{aut}} \,\Big\} .
+\end{equation}
+
+Las dos primeras provienen de las variables observadas $y_{i1},\dots,y_{ik}$ que la
+necesidad vigila, y la tercera de la dinámica autónoma:
+
+\begin{align}
+  p_i^{\text{nivel}} &= \max_k \; \frac{|z_{ik}|}{1-|z_{ik}|},
+    \qquad z_{ik}=\frac{y_{ik}-y^{*}_{ik}}{L_{ik}-y^{*}_{ik}}, \\[4pt]
+  p_i^{\text{ritmo}} &= \max_k \; \left[1 - \frac{\tau_{ik}}{T^{\text{rec}}_{ik}+T^{\text{reac}}_{ik}}\right]_{0}^{1},
+    \qquad \tau_{ik}=\frac{\text{margen}_{ik}}{\text{ritmo}_{ik}}, \\[4pt]
+  p_i^{\text{aut}} &= \frac{|d_i|}{|L_i-x_i^{*}|} \;+\; \eta_i\,\frac{|v_i|}{v_i^{\text{ref}}} .
+\end{align}
+
+El máximo, y no la suma, porque los recursos no son fungibles: holgura en una variable no
+compensa el agotamiento de otra. En $p_i^{\text{aut}}$, la velocidad $v_i$ cumple el papel
+que la tensión acumulada cumplía en la formulación pulsátil: a igual desvío, un sistema
+que viene acelerando hacia el déficit está en peor situación que uno detenido.
+
+\subsection{Zonas algedónicas}
+
+Cuatro zonas —verde, amarillo, ámbar y rojo— definidas sobre $|d_i|$ normalizado por el
+límite. El verde está centrado en $x_i^{*}$; amarillo, ámbar y rojo aparecen a cada lado,
+en déficit y en superávit.
+
+Cada corte $\theta_z$ es una banda de ancho $2\omega_z$, con pertenencia difusa
+
+\begin{equation}
+  \mu_z(x) \in [0,1], \qquad \sum_z \mu_z(x) = 1,
+\end{equation}
+
+que permite priorizar entre necesidades que están en la misma zona. Y cada corte tiene
+histéresis: se entra en la zona al cruzar $\theta_z^{\text{in}}$ y se sale recién al
+cruzar $\theta_z^{\text{out}}$, con $\theta_z^{\text{out}} < \theta_z^{\text{in}}$ para
+los cortes de déficit. Sin histéresis, un valor que oscila alrededor de un corte emite un
+evento por cada cruce.
+
+\subsection{Conjunto viable}
+
+\begin{equation}
+  K \;=\; \Big\{\, x \in \Real^{N} \;:\; L_i^{-} \le x_i \le L_i^{+} \;\; \forall i \,\Big\} .
+\end{equation}
+
+La condición es \emph{conjuntiva}: basta que una necesidad quede fuera de su rango para
+que el sistema deje de ser viable. Salir de $K$ es la muerte operativa.
+
+\section{Censo de hiperparámetros}
+
+\begin{center}
+\begin{tabular}{llp{6.2cm}}
+\toprule
+\textbf{Macro} & \textbf{Subparámetros} & \textbf{Procedencia}\\
+\midrule
+Punto de equilibrio & $x^{*}$, $L^{-}$, $L^{+}$ & contrato de viabilidad\\
+Deriva basal & $\lambda^{0}$, dirección $\sigma$, forma $\varphi$ & contrato; la dirección por el tipo de necesidad\\
+Resorte magnético & $\kappa$, $w$, $f$, $c$ & $w$ derivado por \eqref{eq:w}; $\kappa$ por el régimen; $f$ por el tiempo de muerte por negligencia; $c$ por defecto nulo\\
+Estímulos & $\alpha_{is}$, $\Delta_i$, $g_i$ & medibles por acción\\
+Acoplamiento & $W$ & medible\\
+Zonas algedónicas & $\theta_z$, histéresis, ancho $\omega_z$ & contrato; la histéresis por la granularidad de acción\\
+Pulso & $\Delta t$ & operativo\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Quedan libres, por necesidad, $\lambda^{0}$, $\kappa$ y $f$. Las tres responden a una
+pregunta del dominio: cuánto se degrada la necesidad por unidad de tiempo, qué régimen de
+regulación se busca, y en cuánto tiempo la negligencia debe resultar fatal.
+
+\section{Categorías de necesidad}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+& \textbf{Empuje} & \textbf{Arrastre}\\
+\midrule
+Dirección basal & $\sigma=-1$ (decae) & $\sigma=+1$ (recupera)\\
+Efecto de actuar & sacia ($\alpha>0$) & vacía ($\alpha<0$)\\
+Sin actuar & la presión crece & la presión cede\\
+Mueve hacia & la activación & la inhibición\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Un sistema viable necesita al menos una necesidad de cada categoría. Con solo necesidades
+de arrastre, la política óptima es la inacción, porque la inacción siempre las mejora. Con
+ambas, no existe un nivel de reposo viable: el equilibrio posible es un \emph{ritmo}.
+
+Inhibir no implica necesariamente que el sistema quede quieto: una necesidad de arrastre
+puede activar acciones de preservación (liberar memoria, compactar contexto, degradar el
+modelo) que atenúan el consumo de lo que protege. Una acción de inhibición que no deja al
+sistema en mejores condiciones de sostener su propósito no es inhibición.
+
+\end{document}

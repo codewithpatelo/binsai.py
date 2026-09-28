@@ -33,9 +33,9 @@ def test_drive_update():
 
 
 def test_drive_update_pulsatile():
-    """Default spring: tension charges silently until θ, then discharges."""
+    """Legacy pulsatile spring: tension charges silently until θ, then discharges."""
     drive = Drive(name="test", stratum=Stratum.BIOLOGICAL, value=0.80, set_point=0.50,
-                  kappa=0.1, lambda_rate=0.0, spring_threshold=0.05)
+                  kappa=0.1, lambda_rate=0.0, spring="pulsatile", spring_threshold=0.05)
     drive.update(tick=0)
     # first pulse: σ += 0.1·0.3·e^(−0.3/0.3) ≈ 0.011 < θ=0.05 → no release yet
     assert drive.value == 0.80
@@ -52,7 +52,8 @@ def test_pulsatile_drift_escapes_to_viability():
     """λ > spring grip (κρw/e): neglect escalates past the reach and kills."""
     breaches = []
     d = Drive(name="h", value=0.30, set_point=0.30, kappa=0.04,
-              lambda_rate=0.008, spring_reach=0.25, spring_threshold=0.12,
+              lambda_rate=0.008, spring="pulsatile",
+              spring_reach=0.25, spring_threshold=0.12,
               viability=(0.10, 0.90))
     d.on("ViabilityBreached", lambda p: breaches.append(p))
     for t in range(300):
@@ -63,7 +64,7 @@ def test_pulsatile_drift_escapes_to_viability():
 def test_pulsatile_grip_holds_weak_drift():
     """λ < grip: the spring holds — bounded oscillation, never critical."""
     d = Drive(name="h", value=0.30, set_point=0.30, kappa=0.05,
-              lambda_rate=0.001, spring_reach=0.30)
+              lambda_rate=0.001, spring="pulsatile", spring_reach=0.30)
     for t in range(400):
         d.update(tick=t)
     assert d.value < 0.80

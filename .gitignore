@@ -145,3 +145,6 @@ aopifyjsreadme.md
 _attic/
 notebooks/*.csv
 notebooks/*.jsonl
+
+# Manim render cache
+media/
