@@ -118,7 +118,7 @@ drive.impulse(delta, expected)  # impulsive stimuli → instant jump x += Δ,
 <p align="center">
   <img src="./epa_v2_viability.gif" alt="EPA v2 viability space: 3 needs, algedonic zones, shock beyond reach, cascade to the K wall" width="640" />
   <br>
-  <sub><i>Three needs in viability space: oscillation inside the green zone, a shock beyond magnetic reach, cascade to the K wall. Real Binsai data — <code>tools_manim_epa_v2.py</code>.</i></sub>
+  <sub><i>Three needs in viability space: oscillation inside the green zone, a shock beyond magnetic reach, cascade to the K wall. Real Binsai data — regenerate with <code>python epa_v2_sim.py</code> then <code>manim -qh -o epa_v2_viability.mp4 tools_manim_epa_v2.py EPAViability</code> (<code>-qm</code> renders faster), and convert to GIF with ffmpeg.</i></sub>
 </p>
 
 | Term | Name | What it does |
@@ -126,7 +126,7 @@ drive.impulse(delta, expected)  # impulsive stimuli → instant jump x += Δ,
 | `x_i` | drive level | the regulated state |
 | `x_i*` | set-point | theoretical harmony point |
 | `λ_i` | basal drift | what happens when nothing happens (`basal_direction`: `"recover"`/`"decay"`, shaped by `drift`) |
-| `r_i` | elastic spring | tension charged by displacement, released in pulses (`spring="pulsatile"` default: σ integrates, discharges past `spring_threshold`; `"linear"` is the legacy damper — see `docs/SPRING.md`) |
+| `r_i` | elastic spring | fatigable magnetic spring with finite reach (`spring="magnetic-2nd"` default: `S = κ_ef·d·e^(−|d|/w)`, grip fades past `d*`; `"pulsatile"` and `"linear"` are legacy arms — see `docs/SPRING.md`) |
 | `u_i` | stimuli & actions | satiate (α>0) or perturb (α<0) the deviation |
 | `W_ij` | coupling | how much another drive's deviation moves this one |
 
@@ -575,7 +575,7 @@ x_i(t+1) = x_i(t) + λ_i(x_i,t) − r_i(t) + u_i(t) + Σ_j W_ij·(x_j(t) − x_j
 | `x_i` | nivel de la necesidad | el estado que se regula |
 | `x_i*` | punto de equilibrio | el punto teórico de armonía |
 | `λ_i` | deriva basal | qué le pasa a la necesidad si no ocurre nada (`basal_direction`: `"recover"`/`"decay"`, forma por `drift`) |
-| `r_i` | resorte elástico | tensión que el desplazamiento carga y la regulación libera en pulsos (`spring="pulsatile"` default: σ integra, descarga al pasar `spring_threshold`; `"linear"` es el amortiguador legacy — ver `docs/SPRING.md`) |
+| `r_i` | resorte elástico | resorte magnético fatigable de alcance finito (`spring="magnetic-2nd"` default: `S = κ_ef·d·e^(−|d|/w)`, el agarre decae pasado `d*`; `"pulsatile"` y `"linear"` son brazos legacy — ver `docs/SPRING.md`) |
 | `u_i` | estímulos y acciones | sacia (α>0) o perturba (α<0) el desvío |
 | `W_ij` | acoplamiento | cuánto el desvío de otra necesidad mueve a esta |
 
