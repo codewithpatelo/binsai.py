@@ -24,19 +24,34 @@ No es una ecuación de optimización ni de maximización. No hay objetivo termin
 
 ### 2.2 La ecuación
 
-Para cada necesidad i, en cada pulso:
+Para cada necesidad i, en cada pulso (EPA v2 — estado de segundo orden `(x_i, v_i)`, ver `docs/paov2.tex`):
 
-```
-x_i(t+1) = x_i(t) + λ_i(x_i, t) − r_i(t) + u_i(t) + Σ_j W_ij · (x_j(t) − x_j*)
-```
+$$
+v_i(t+\Delta t) = v_i(t) + a_i(t)\,\Delta t,
+\qquad
+x_i(t+\Delta t) = x_i(t) + v_i(t+\Delta t)\,\Delta t
+$$
+
+$$
+a_i(t) =
+\lambda_i(x_i,t)
+- S_i(x_i,t)
+- c_i\,v_i(t)
++ u_i(t)
++ \sum_{j\ne i} W_{ij}\bigl(x_j(t)-x_j^*\bigr)
+$$
+
+con el resorte magnético fatigable $S_i = \kappa_i^{\mathrm{ef}}\, d_i\, e^{-|d_i|/w_i}$, $\kappa_i^{\mathrm{ef}} = \kappa_i\, e^{-f_i\Lambda_i}$ y $\dot\Lambda_i = |d_i| - \rho_i^{\Lambda}\Lambda_i$, donde $d_i = x_i - x_i^*$.
 
 | Término | Nombre | Qué hace |
 |---|---|---|
 | `x_i` | nivel de la necesidad | el estado que se regula — convención: **nivel de satisfacción** (x alto = satisfecho/holgado; x bajo = déficit). Un drive push decae hacia el déficit por negligencia basal; uno pull se repone hacia la holgura y lo drena el trabajo |
+| `v_i` | velocidad | la segunda componente del estado — inercia del nivel |
 | `x_i*` | punto de equilibrio (set-point) | el punto teórico de armonía |
 | `λ_i` | deriva basal | qué le pasa a la necesidad si no ocurre nada |
-| `r_i` | resorte elástico | tensión que el desplazamiento carga y la regulación libera |
-| `u_i` | estímulos y acciones | su efecto sobre la necesidad: sacia (α > 0, reduce el desvío) o perturba (α < 0, lo aumenta) |
+| `S_i` | resorte magnético | atracción al set-point con alcance finito `d*` y agarre que se fatiga (`w`, `f`) |
+| `c_i` | amortiguación | disipa la velocidad — evita oscilación perpetua |
+| `u_i` | estímulos y acciones | canal de aceleración: `sustain()` sostenido, `impulse()` salto instantáneo de `x` |
 | `W_ij` | acoplamiento | cuánto el desvío de otra necesidad mueve a esta |
 
 El pulso (tick, heartbeat) actualiza la EPA siempre, haya o no estímulos, haya o no perturbaciones. La unidad de tiempo del pulso es parametrizable.
@@ -50,10 +65,11 @@ El pulso (tick, heartbeat) actualiza la EPA siempre, haya o no estímulos, haya 
 - Subhiperparámetro `basal_direction`: `decay` (la necesidad decae) o `recover` (se recupera).
 - Subhiperparámetro `basal_fn`: la forma de esa deriva. Por defecto, decaimiento lineal.
 
-**Resorte elástico (`kappa` + `spring`).** Atrae el nivel hacia el set-point sin llegar al equilibrio perfecto — acumula tensión y la libera en pulsos. Sin resorte el sistema puede sentarse exactamente en el set-point y quedar inerte.
+**Resorte (`kappa` + `spring`).** Atrae el nivel hacia el set-point sin llegar al equilibrio perfecto. Sin resorte el sistema puede sentarse exactamente en el set-point y quedar inerte.
 
-- `spring="pulsatile"` (default): el desplazamiento carga tensión `σ` a razón `κ·d·e^(−|d|/w)` por pulso; cuando `|σ| ≥ θ` el resorte libera un pulso `ρ·σ` que empuja el nivel de vuelta. La deriva siempre actúa, el resorte solo muerde en pulsos — la trayectoria son ondas sobre la tendencia basal. `spring_reach` (w) es el alcance del resorte: más allá de él el agarre decae y la negligencia sostenida puede escalar hasta la viabilidad. `w=inf` da una mesa oscilante acotada. Subhiperparámetros: `spring_threshold` (θ) y `spring_release` (ρ).
-- `spring="linear"`: amortiguador continuo `r = κ·(x−x*)` (comportamiento ≤0.2.x). Acota la desviación en `λ/κ` — útil para procesos que saturan de verdad y como baseline de ablación.
+- `spring="magnetic-2nd"` (default, EPA v2): fuerza continua `S = κ_ef·d·e^(−|d|/w)` con **alcance finito** `d*` — más allá el agarre decae y la negligencia sostenida o un shock grande pueden escalar hasta la viabilidad. La **fatiga** `f` hace que el desvío sostenido acumule carga alostática `Λ` y degrade `κ_ef` con el tiempo: sin `f` el sistema desatendido oscila para siempre. `w` se deriva por la regla `w = d*/ln(κ_ef·d*/λ⁰)` (`design_spring_reach`) con `d*` estrictamente dentro del margen viable. Subhiperparámetros: `damping` (c), `spring_fatigue` (f), `allostatic_relax` (ρ_Λ).
+- `spring="pulsatile"` (legacy): el desplazamiento carga tensión `σ` a razón `κ·d·e^(−|d|/w)` por pulso; cuando `|σ| ≥ θ` el resorte libera un pulso `ρ·σ`. Subhiperparámetros: `spring_threshold` (θ) y `spring_release` (ρ).
+- `spring="linear"` (legacy): amortiguador continuo `r = κ·(x−x*)` (comportamiento ≤0.2.x). Acota la desviación en `λ/κ` — útil como baseline de ablación.
 
 Ver `docs/SPRING.md` para el análisis completo y los regímenes dinámicos.
 

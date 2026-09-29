@@ -562,13 +562,55 @@ Binsai es a la EPA lo que scikit-learn es a los modelos estadísticos, y a los a
 
 ---
 
-## La Ecuación Proacción (EPA)
+## La Ecuación Proacción (EPA) — v2
 
-Binsai implementa la **EPA** — una ecuación de estados que modela *viabilidad*, no optimización. Para cada necesidad `i`, en cada pulso:
+Binsai implementa la **EPA** — una ecuación de estados que modela *viabilidad*, no optimización. En EPA v2 (`docs/paov2.tex`) cada necesidad `i` lleva el **estado de segundo orden** `(x_i, v_i)` — nivel de satisfacción y su velocidad:
+
+$$
+v_i(t+\Delta t) = v_i(t) + a_i(t)\,\Delta t,
+\qquad
+x_i(t+\Delta t) = x_i(t) + v_i(t+\Delta t)\,\Delta t
+$$
+
+$$
+a_i(t) =
+\underbrace{\lambda_i(x_i,t)}_{\text{deriva basal}}
+- \underbrace{S_i(x_i,t)}_{\text{resorte magnético}}
+- \underbrace{c_i\,v_i(t)}_{\text{amortiguación}}
++ \underbrace{u_i(t)}_{\text{estímulos sostenidos}}
++ \sum_{j\ne i} W_{ij}\bigl(x_j(t)-x_j^*\bigr)
+$$
+
+con el **resorte magnético fatigable**:
+
+$$
+S_i(x_i,t) = \kappa_i^{\mathrm{ef}}(t)\, d_i(t)\, e^{-|d_i(t)|/w_i},
+\qquad
+\kappa_i^{\mathrm{ef}}(t) = \kappa_i\, e^{-f_i \Lambda_i(t)},
+\qquad
+\frac{d\Lambda_i}{dt} = |d_i| - \rho_i^{\Lambda}\Lambda_i
+$$
+
+donde $d_i = x_i - x_i^*$. Dos decaimientos complementarios hacen no trivial a la regulación:
+
+- **`w` (alcance finito)** — el agarre decae con la *distancia*: un shock suficientemente grande escapa hacia el borde de viabilidad. Se deriva, no se elige: `d* = −w·W₋₁(−λ⁰/(κ_ef·w))` y `w = d*/ln(κ_ef·d*/λ⁰)`, con `d*` estrictamente adentro del margen viable.
+- **`f` (fatiga)** — el agarre decae con el *tiempo*: la desviación sostenida acumula carga alostática `Λ` y desgasta `κ_ef` hasta que la deriva basal gana. Sin `f`, un sistema desatendido oscila para siempre cerca del equilibrio.
+
+El sistema es viable mientras toda necesidad permanece dentro de su contrato `K_i = [L_i^-, L_i^+]`. Salir de `K` es muerte operativa.
 
 ```
-x_i(t+1) = x_i(t) + λ_i(x_i,t) − r_i(t) + u_i(t) + Σ_j W_ij·(x_j(t) − x_j*)
+drive.sustain("work", alpha)    # estímulos sostenidos → canal de aceleración u
+drive.impulse(delta, expected)  # estímulos impulsivos → salto instantáneo x += Δ,
+                                # devuelve g = Δ_observado/Δ_esperado
 ```
+
+Los resortes `linear` y `pulsatile` quedan disponibles como brazos legacy para ablación controlada (`docs/ABLATION-EPA-V2.md`). Los resultados de dinámicas pre-v2 no son comparables punto a punto — ver `CHANGELOG.md`.
+
+<p align="center">
+  <img src="./epa_v2_viability.gif" alt="Espacio de viabilidad EPA v2: 3 necesidades, zonas algedónicas, shock más allá del alcance, cascada a la pared K" width="640" />
+  <br>
+  <sub><i>Tres necesidades en el espacio de viabilidad: oscilación dentro de la zona verde, un shock más allá del alcance magnético, cascada hacia la pared K. Datos de una corrida real de Binsai — regenerar con <code>python epa_v2_sim.py</code> y luego <code>manim -qh -o epa_v2_viability.mp4 tools_manim_epa_v2.py EPAViability</code> (<code>-qm</code> es más rápido), y convertir a GIF con ffmpeg.</i></sub>
+</p>
 
 | Término | Nombre | Qué hace |
 |---|---|---|
@@ -856,6 +898,12 @@ Cada MVP incluye una demo visual con Phaser 3. El demo es una **instalación opc
 | 4 | Reflective Agent (próximamente) | Arbitraje Γ |
 | 5 | Operator Demos (próximamente) | Γ corriendo dentro de Binsai |
 | 6 | World Model + VSM (próximamente) | Grafo ontológico + recursión |
+
+---
+
+## Documentación
+
+📚 [Documentación completa](https://binsai.readthedocs.io) *(próximamente)*
 
 ---
 
