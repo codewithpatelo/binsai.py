@@ -377,6 +377,29 @@ class ActionExecution:
     demand_topic:      Optional[str]     = None
     demand_difficulty: float             = 0.0
     result:            Optional[dict]    = None  # filled when complete
+    expected_effect:   Optional["ExpectedEffect"] = None  # v2.1 §3
+
+
+@dataclass
+class ExpectedEffect:
+    """v2.1 §3.1 — the action declares its quantitative prediction BEFORE
+    executing: which drive, by how much (Δ_exp, signed), by when.
+
+    The manager of the 2026-10-09 night already wrote this in prose
+    ("lifting service from −0.785 toward 0"); v2.1 turns it into a number
+    with a deadline. The loop verifies at byWhen and computes
+    g = Δ_obs/Δ_exp — satiation applies to the MEASURED effect, never to
+    the action taken (Satiation Signal Problem).
+    """
+    drive_id:        str
+    delta_expected:  float
+    by_when:         float                  # time (tick·dt) when it must be observable
+    action:          Optional[str] = None   # action that declared it
+    fault:           Optional[str] = None   # demand topic / failure the action targets
+    declared_at:     float = 0.0            # filled by the agent
+    baseline:        Optional[float] = None # drive value at declaration time
+    verified:        bool = False           # g computed
+    g:               Optional[float] = None
 
 
 def start_action(kind: ActionKind, tick: int, demand: Any = None) -> ActionExecution:

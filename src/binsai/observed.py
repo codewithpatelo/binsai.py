@@ -38,7 +38,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from .events import EventEmitter, ZONE_CHANGED, SENSOR_INVALID
+from .events import EventEmitter, ZONE_CHANGED, SENSOR_INVALID, PERTURBED
 
 
 class VariableKind(Enum):
@@ -157,6 +157,8 @@ class ObservedVariable(EventEmitter):
         valid_range:      tuple[Optional[float], Optional[float]] = (None, None),
         source:           str             = "",
         zone_thresholds:  tuple[float, float, float] = (0.15, 0.40, 0.70),
+        impulse_iota:     tuple[float, float, float] = (0.02, 0.06, 0.18),  # ι₁ ι₂ ι₃
+        impulse_zeta:     float           = 0.6,   # ζ — improving satiates less
     ) -> None:
         self._init_bus()
         self.name = name
@@ -181,11 +183,15 @@ class ObservedVariable(EventEmitter):
         self.valid_range = valid_range
         self.source = source
         self.zone_thresholds = zone_thresholds
+        self.impulse_iota = impulse_iota
+        self.impulse_zeta = impulse_zeta
 
         self._samples: deque[tuple[float, float]] = deque(maxlen=10000)
         self.samples_dropped: int = 0          # count of evicted oldest samples
         self._drop_warned: bool = False        # warn once, then count silently
         self._last_zone: Optional[str] = None
+        self._last_level_zone: Optional[str] = None   # v2.1 §1 — per-family zone state
+        self._last_pace_zone: Optional[str] = None
         self._invalid_reason: Optional[str] = "no samples"
         # last computed state (for introspection)
         self.last_level_pressure: Optional[float] = None
@@ -226,6 +232,10 @@ class ObservedVariable(EventEmitter):
         p = max(p for p in (p_level, p_pace) if p is not None) \
             if any(p is not None for p in (p_level, p_pace)) else 0.0
         self._check_zone(p, t, value)
+        # v2.1 §1.3 — both families publish perturbation events on their own
+        # zone crossings: the variable publishes, subscribed drives receive.
+        self._check_perturbation(p_level, t, "level")
+        self._check_perturbation(p_pace, t, "pace")
         return p
 
     def _validate(self, t: float, value: float) -> Optional[str]:
@@ -488,6 +498,57 @@ class ObservedVariable(EventEmitter):
                 "t":          t,
             })
             self._last_zone = zone
+
+    @staticmethod
+    def _severity(zone: Optional[str]) -> int:
+        """Order of algedonic bands: equilibrium < moderate < high < critical."""
+        if not zone or zone == "equilibrium":
+            return 0
+        if "moderate" in zone:
+            return 1
+        if "high" in zone:
+            return 2
+        return 3
+
+    def _check_perturbation(self, p: Optional[float], t: float, kind: str) -> None:
+        """v2.1 §1 — emit Perturbed on a zone crossing of this family.
+
+        The sign is the crossing direction relative to the set-point (away =
+        worse zone → ι>0 perturbs; toward = better zone → ι<0 satiates,
+        scaled by ζ). The magnitude comes from the severity of the crossing
+        (ι₁ green→yellow, ι₂ yellow→amber, ι₃ amber→red).
+        """
+        if p is None:
+            return
+        zone = self.pressure_zone(min(1.0, p))
+        last = self._last_level_zone if kind == "level" else self._last_pace_zone
+        if zone == last:
+            return
+        if kind == "level":
+            self._last_level_zone = zone
+        else:
+            self._last_pace_zone = zone
+        if last is None:
+            return                          # first sample anchors, no crossing
+        sev_from, sev_to = self._severity(last), self._severity(zone)
+        if sev_from == sev_to:
+            return                          # lateral move (deficit↔superavit band)
+        sev = max(sev_from, sev_to)
+        if sev < 1:
+            return                          # in/out of equilibrium: no impulse
+        mag = self.impulse_iota[sev - 1]
+        direction = "away" if sev_to > sev_from else "toward"
+        impulse = mag if direction == "away" else -(mag * self.impulse_zeta)
+        self.emit(PERTURBED, {
+            "t":         t,
+            "variable":  self.name,
+            "kind":      kind,
+            "from":      last,
+            "to":        zone,
+            "direction": direction,
+            "impulse":   round(impulse, 6),
+            "driveId":   None,              # filled by each subscribed drive
+        })
 
     @property
     def zone(self) -> Optional[str]:

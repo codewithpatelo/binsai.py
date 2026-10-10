@@ -44,6 +44,7 @@ class ActionSpec:
     bias:             float   = 0.0
     handler:          Optional[Callable] = None
     max_tokens:       int     = 0
+    risk:             str     = "corrective"  # v2.1 §7.2 — "corrective" | "destructive"
 
 
 # ── Built-in handlers ────────────────────────────────────────────────────────

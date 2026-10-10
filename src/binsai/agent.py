@@ -26,7 +26,9 @@ from typing import Any, Callable, Optional
 
 from .acl import ACLMessage, Mailbox, Performative
 from .drives import Drive, Drives
-from .events import EventEmitter
+from .events import (EventEmitter, ACTIVATION_DRAW, ACTIVATION_FAILED,
+                     ACTION_REJECTED, EXPECTED_EFFECT, G_MEASURED,
+                     CONTRACT_VERIFIED, CONTRACT_REINJECTED)
 from .lifecycle import FIPAState, LifecycleManager
 from .fuzzy import (compute_action_distribution, sample_action,
                     activation_probability, activation_hazard)
@@ -36,6 +38,7 @@ from .actions import (
     ACTIONS,
     AppraisedTask,
     DEFAULT_ROUTING,
+    ExpectedEffect,
     LLMTelemetry,
     ModelConfig,
     RegulatoryBudgets,
@@ -44,6 +47,8 @@ from .actions import (
     pick_model_for_state,
     start_action,
 )
+from .guards import Guard, evaluate_guards
+from .contract import ViabilityContract
 from .sleep import ConsolidationWorker, WakeGuard
 from .symbolic import check_proact_proposal
 
@@ -96,6 +101,17 @@ class BinsaiAgent(EventEmitter):
         activation_h_demand:   float        = 4.0,
         activation_h_backlog:  float        = 0.3,
         activation_refractory: float        = 1.0,
+        # ── EPA v2.1 (docs/paov2.1.md §5) ──
+        activation_theta:      float        = 0.2,   # θ — E[wait] ≤ θ·TTD_system
+        activation_beta:       float        = 0.1,   # β — refractory = β·TTD
+        activation_h_max:      float        = 60.0,  # h_max — rate ceiling (must
+        # stay above 1/(θ·TTD_min) for the θ anchor to bind: the 2026-10-09
+        # harness capped at 12/h and could not wake faster than 5 min)
+        activation_refractory_min: float    = 1.0,
+        g_ok:                  float        = 0.5,   # g ≥ g_ok → effect achieved
+        g_nulo:                float        = 0.15,  # |g| < g_nulo → null effect
+        guards:                Optional[list] = None,  # v2.1 §7 Guard predicates
+        contract:              Optional[ViabilityContract] = None,  # v2.1 §7.3
     ) -> None:
         import random as _random
 
@@ -180,6 +196,21 @@ class BinsaiAgent(EventEmitter):
         self.activation_h_backlog  = activation_h_backlog
         self.activation_refractory = activation_refractory
         self._refractory_until: float = 0.0
+
+        # ── EPA v2.1 state ──
+        self.activation_theta       = activation_theta
+        self.activation_beta        = activation_beta
+        self.activation_h_max       = activation_h_max
+        self.activation_refractory_min = activation_refractory_min
+        self.g_ok   = g_ok
+        self.g_nulo = g_nulo
+        self.guards: list[Guard] = list(guards or [])
+        self.contract = contract
+        # g ledger — v2.1 §3: declarations pending verification
+        self._expected_effects: list[ExpectedEffect] = []
+        # window attempt book — v2.1 §3.3: what was tried per fault, measured
+        self._attempts: list[dict] = []
+        self._disabled_attempts: set[tuple] = set()  # (fault, action) pairs
 
         # Last action taken this tick (for UI — includes single-tick actions)
         self.last_action: Optional[str] = None
@@ -286,6 +317,10 @@ class BinsaiAgent(EventEmitter):
         """
         self._current_tick = t
         self.emit("Pulse", {"agent": self.name, "tick": t, "status": self.status})
+        # v2.1 §3.2 — verify declared ExpectedEffects whose deadline passed
+        # before the gate decides: a null/harmful g must shape the next draw.
+        dt_verify = getattr(next(iter(self.drives), None), "dt", 1.0) or 1.0
+        self._verify_due_effects(t * dt_verify)
         # Primary regulatory need (first available)
         drive = self.drives.get("metabolic") or next(iter(self.drives), None)
 
@@ -483,18 +518,48 @@ class BinsaiAgent(EventEmitter):
         # p(act this tick) = 1 − e^(−h·Δt) — invariant to tick size; h has
         # domain meaning (mean wait = 1/h). Refractory dead-time prevents
         # action bursts. The gate owns act/not-act; the softmax owns which.
+        # v2.1 §5.2 — the wait is anchored to the horizon: E[wait] = 1/h ≤
+        # θ·TTD_system, so the agent wakes several times before the first
+        # wall is reached instead of once per hour with a dead drive.
         dt = getattr(primary, "dt", 1.0) or 1.0
         if t * dt < self._refractory_until:
             return "idle"
+        system_pressure = self.drives.pressure
         h = activation_hazard(
-            getattr(primary, "pressure", 0.0) or 0.0,
+            system_pressure,
             has_demand=has_demand,
             pending_labels=len(self.pending_task_labels),
             h_pressure=self.activation_h_pressure,
             h_demand=self.activation_h_demand,
             h_backlog=self.activation_h_backlog,
         )
-        if self._rng.random() >= activation_probability(h, dt):
+        ttd = self.drives.time_to_death()
+        if ttd is not None and ttd > 0:
+            h_required = 1.0 / max(1e-9, self.activation_theta * ttd)
+            h = min(self.activation_h_max, max(h, h_required))
+        p_tick = activation_probability(h, dt)
+        draw = self._rng.random()
+        acted = draw < p_tick
+        # v2.1 §8 — every activation draw is a first-class event with the
+        # full input state, so a night is reconstructible from the log alone.
+        self.emit(ACTIVATION_DRAW, {
+            "agent":          self.name,
+            "tick":           t,
+            "pressure":       round(system_pressure, 4),
+            "ttd":            round(ttd, 3) if ttd is not None else None,
+            "h":              round(h, 4),
+            "p_tick":         round(p_tick, 6),
+            "draw":           round(draw, 6),
+            "acted":          acted,
+            "refractory_until": round(self._refractory_until, 3),
+            "components": {
+                d.name: {k: (v if not isinstance(v, (int, float))
+                             else round(v, 4))
+                         for k, v in d.pressure_components().items()}
+                for d in self.drives
+            },
+        })
+        if not acted:
             return "idle"
 
         distribution = compute_action_distribution(
@@ -588,6 +653,25 @@ class BinsaiAgent(EventEmitter):
         if action_spec is None:
             return "idle"
 
+        # v2.1 §3.3 — an action measured harmful for this fault stays out of
+        # the book for the rest of the window.
+        fault = None
+        if action_spec.requires_demand and self.pending_demands:
+            fault = getattr(self.pending_demands[0], "topic", None)
+        if (fault, action_name) in self._disabled_attempts:
+            self.emit(ACTION_REJECTED, {
+                "agent": self.name, "tick": t, "action": action_name,
+                "fault": fault, "reason": "harmful_in_window",
+            })
+            return "idle"
+
+        # v2.1 §7 — guards: absent signals skip, never block; a rejected
+        # corrective raises pressure instead of consuming the activation.
+        if self.guards:
+            verdict = self.guard_check(action_spec.risk, t)
+            if verdict is not None:
+                return "idle"
+
         # If the action has a handler, run it for side effects (sleep, defer, idle, satiated)
         if action_spec.handler is not None:
             handler_result = action_spec.handler(self, drive, t, None, demand_difficulty)
@@ -636,6 +720,10 @@ class BinsaiAgent(EventEmitter):
                 self._lifecycle.transition(
                     FIPAState.ACTIVE, cause=f"execute: {action_name}", tick=t,
                 )
+                self.emit("lifecycle", {
+                    "event": "active", "agent": self.name, "tick": t,
+                    "cause": f"execute: {action_name}",
+                })
             except ValueError:
                 pass
         return action_name
@@ -818,16 +906,179 @@ class BinsaiAgent(EventEmitter):
 
         # Refractory dead-time after acting — in time units (t·Δt), so the
         # activation gate can't fire again until it elapses.
-        if self.activation_refractory > 0:
-            dt = getattr(next(iter(self.drives), None), "dt", 1.0) or 1.0
-            self._refractory_until = max(
-                self._refractory_until, t * dt + self.activation_refractory)
+        # v2.1 §5.3 — the refractory scales with the horizon: a fixed 15-min
+        # dead-time is the real ceiling when the required wait is 2.3 min.
+        # A pending ExpectedEffect defers the refractory: the activation is
+        # only consumed once g is measured and the effect was real (§3.3).
+        if execution.expected_effect is not None:
+            pass  # deferred: set only when g is measured and the effect was real
+        elif self.activation_refractory > 0:
+            self._apply_refractory(t)
 
         self.remember({
             "type":   "action",
             "action": execution.kind.value,
             "demand": execution.demand_id,
         })
+
+    # ── EPA v2.1: TTD-anchored refractory, g ledger, guards, contract ─────
+
+    def _apply_refractory(self, t: int) -> None:
+        """v2.1 §5.3 — refractory scales with the horizon: β·TTD_system,
+        clamped to [refractory_min, refractory]. With no wall approaching
+        (TTD = ∞) it stays at the fixed maximum."""
+        dt = getattr(next(iter(self.drives), None), "dt", 1.0) or 1.0
+        ttd = self.drives.time_to_death()
+        if ttd is not None and ttd > 0:
+            ref = min(self.activation_refractory,
+                      max(self.activation_refractory_min,
+                          self.activation_beta * ttd))
+        else:
+            ref = self.activation_refractory
+        self._refractory_until = max(self._refractory_until, t * dt + ref)
+
+    def declare_expected_effect(self, drive_id: str, delta_expected: float,
+                                by_when: float, action: Optional[str] = None,
+                                fault: Optional[str] = None) -> ExpectedEffect:
+        """v2.1 §3.1 — the action declares its quantitative prediction.
+
+        Δ_exp signed, with a deadline. The loop verifies at byWhen and
+        computes g = Δ_obs/Δ_exp — satiation applies to the measured
+        effect, never to the action taken.
+        """
+        drive = self.drives.get(drive_id)
+        if drive is None:
+            raise ValueError(f"declare_expected_effect: unknown drive {drive_id!r}")
+        ee = ExpectedEffect(drive_id=drive_id, delta_expected=delta_expected,
+                            by_when=by_when, action=action, fault=fault)
+        ee.baseline = drive.value
+        dt = getattr(drive, "dt", 1.0) or 1.0
+        ee.declared_at = self._current_tick * dt
+        self._expected_effects.append(ee)
+        self.emit(EXPECTED_EFFECT, {
+            "agent":           self.name,
+            "tick":            self._current_tick,
+            "drive":           drive_id,
+            "action":          action,
+            "fault":           fault,
+            "delta_expected":  delta_expected,
+            "by_when":         by_when,
+            "baseline":        round(ee.baseline, 6),
+        })
+        return ee
+
+    def _verify_due_effects(self, t_time: float) -> None:
+        """v2.1 §3.2 — verify every ExpectedEffect whose deadline passed."""
+        for ee in list(self._expected_effects):
+            if not ee.verified and ee.by_when <= t_time:
+                self._verify_expected_effect(ee, t_time)
+        self._expected_effects = [e for e in self._expected_effects
+                                  if not e.verified]
+
+    def _verify_expected_effect(self, ee: ExpectedEffect, t_time: float) -> None:
+        drive = self.drives.get(ee.drive_id)
+        if drive is None:
+            ee.verified, ee.g = True, 0.0
+            return
+        d_obs = drive.value - (ee.baseline if ee.baseline is not None
+                               else drive.set_point)
+        if ee.delta_expected:
+            g = max(-1.0, min(2.0, d_obs / ee.delta_expected))
+        else:
+            g = 0.0 if abs(d_obs) < 1e-12 else (2.0 if d_obs > 0 else -1.0)
+        ee.verified, ee.g = True, g
+        dt = getattr(drive, "dt", 1.0) or 1.0
+        tick = int(t_time / dt) if dt > 0 else int(t_time)
+        result = ("ok" if g >= self.g_ok
+                  else "null" if abs(g) < self.g_nulo else "harmful")
+        self.emit(G_MEASURED, {
+            "agent":          self.name,
+            "tick":           tick,
+            "drive":          ee.drive_id,
+            "action":         ee.action,
+            "fault":          ee.fault,
+            "delta_expected": ee.delta_expected,
+            "delta_observed": round(d_obs, 6),
+            "g":              round(g, 4),
+            "result":         result,
+        })
+        if result == "ok":
+            # v2.1 §3.3 — satiation on the MEASURED effect, never on the
+            # action taken. And the activation is consumed: refractory on.
+            drive.apply_impulse(tick, abs(d_obs), toward=True)
+            self._apply_refractory(tick)
+        elif result == "null":
+            # Trying and not achieving is worse than not trying: the
+            # activation is NOT consumed (no refractory), an ι₂ impulse
+            # perturbs the drive, and the failure is first-class.
+            drive.apply_impulse(tick, drive.impulse_iota[1], toward=False)
+            self.emit(ACTIVATION_FAILED, {
+                "agent": self.name, "tick": tick, "drive": ee.drive_id,
+                "action": ee.action, "g": round(g, 4), "reason": "null_effect",
+            })
+        else:
+            # The action made it worse: ι₃ and out of the book for this
+            # fault for the rest of the window.
+            drive.apply_impulse(tick, drive.impulse_iota[2], toward=False)
+            self._disabled_attempts.add((ee.fault, ee.action))
+            self.emit(ACTIVATION_FAILED, {
+                "agent": self.name, "tick": tick, "drive": ee.drive_id,
+                "action": ee.action, "g": round(g, 4), "reason": "harmful",
+                "disabled_in_window": True,
+            })
+        self._attempts.append({
+            "action": ee.action, "fault": ee.fault, "drive": ee.drive_id,
+            "delta_expected": ee.delta_expected,
+            "delta_observed": round(d_obs, 6), "g": round(g, 4),
+            "result": result, "tick": tick,
+        })
+
+    @property
+    def attempts(self) -> list[dict]:
+        """Window attempt book — v2.1 §6: what was tried per fault, measured."""
+        return list(self._attempts)
+
+    def guard_check(self, risk: str, t: int):
+        """v2.1 §7 — run the guards of `risk` over calibrated drive signals.
+
+        Returns the blocking verdict or None. An uncalibrated signal makes
+        its guard skip (it never blocks), traced as first-class event.
+        """
+        signals: dict[str, Optional[float]] = {}
+        for d in self.drives:
+            comps = d.pressure_components()
+            signals[f"{d.name}.level"]      = comps["level"]
+            signals[f"{d.name}.pace"]       = comps["pace"]
+            signals[f"{d.name}.autonomous"] = comps["autonomous"]
+            signals[f"{d.name}.pressure"]   = d.pressure
+        verdict = evaluate_guards(self.guards, risk, signals, self.emit)
+        if verdict is not None:
+            self.emit(ACTION_REJECTED, {
+                "agent": self.name, "tick": t, "risk": risk,
+                "reason": verdict.reason,
+            })
+        return verdict
+
+    def verify_contract_block(self, context_text: str) -> bool:
+        """v2.1 §7.3 — the viability contract survives any lossy compaction.
+
+        Verifies the verbatim block is present; if not, the caller must
+        re-inject `contract.block()` before proceeding. Both outcomes are
+        first-class events.
+        """
+        if self.contract is None:
+            return True
+        ok, _ = self.contract.verify(context_text)
+        fp = self.contract._fingerprint
+        if ok:
+            self.emit(CONTRACT_VERIFIED, {
+                "agent": self.name, "fingerprint": fp,
+            })
+        else:
+            self.emit(CONTRACT_REINJECTED, {
+                "agent": self.name, "fingerprint": fp,
+            })
+        return ok
 
     # ── Event System (EventEmitter: on/off/emit/on_any/subscribe/unsubscribe) ────
 

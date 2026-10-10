@@ -1,5 +1,65 @@
 # Changelog
 
+## EPA v2.1 (unreleased)
+
+### Delta sobre v2 — spec completa en `docs/paov2.1.md`
+
+Cada cambio anclado a una observación de la corrida multiply-overnight del
+2026-10-09 (166 muestras/drive, cero discontinuidades, `rate` null 166/166,
+presión 0.465 con un drive en el límite, `level` 1.934, 28 min de
+saturación, guarda que leyó ausencia como desacuerdo).
+
+- **§1 — La perturbación es un impulso de evento, no una inclinación de λ.**
+  Las variables observadas publican `Perturbed` al cruzar una frontera de
+  zona (familias level y pace); los drives suscriptos reciben el impulso
+  `ι·ψ(t−t_k)` con `ψ(s)=e^(−s/τ_u)` sobre el canal de aceleración `u`. La
+  velocidad carga la memoria del golpe — para eso existe el segundo orden.
+  Magnitudes por severidad `ι₁/ι₂/ι₃` (0.02/0.06/0.18), asimetría `ζ=0.6`
+  para cruces de mejora. `Drive.apply_impulse`, `Drive.impulses`.
+- **§2 — Presión normalizada y conjuntiva.** Toda fuente en `[0,1]`:
+  `level = min(1,|d|/|L−x*|)`, `pace` = máx. de variables observadas
+  calibradas, `autonomous = min(1,η|v|/v_ref)`. Fuente sin calibrar queda
+  FUERA del máximo y se registra — nunca vale 0. `Drives.pressure` = max
+  (intersección de contratos, nunca el promedio). Saturación en el límite:
+  presión 1, evento `DriveSaturated`, `saturation_time` acumulado como
+  variable observada de derecho propio. Condición inicial `x(t₀)=x*` por
+  defecto (`Drive(value=None)`).
+- **§3 — `g` se mide.** `ExpectedEffect {driveId, Δ_exp, byWhen}` declarado
+  ANTES de ejecutar; el bucle verifica en `byWhen`: `g = Δ_obs/Δ_exp`
+  acotado a [−1, 2]. `g ≥ g_ok`: saciación sobre el efecto MEDIDO;
+  `|g| < g_nulo`: impulso ι₂, la activación NO se consume (sin
+  refractario), `ActivationFailed`; `g < 0`: impulso ι₃, resultado
+  `harmful`, la acción queda inhabilitada para la misma falla en la
+  ventana. Libro de intentos en `agent.attempts`.
+- **§4 — TTD (tiempo a muerte por negligencia).** Proyección lineal sobre
+  los últimos `N` ticks del log: `TTD_i = margen/pendiente`, `TTD_sistema
+  = min`. `Drive.time_to_death()`, `Drives.time_to_death()`. La carga
+  alostática Λ cuenta lo ya regulado; TTD cuenta lo que queda.
+- **§5 — La tasa respeta el horizonte.** `E[espera] = 1/h ≤ θ·TTD` →
+  `h = min(h_max, max(h_base, 1/(θ·TTD)))`; refractario
+  `min(ref_max, max(ref_min, β·TTD))`. `h_max` default subió a 60/h — la
+  noche del 09 con `h_max=12/h` no podía despertar antes de 5 min.
+- **§7 — Guardas.** `binsai.guards`: señal ausente ≠ desacuerdo
+  (`GuardSkippedUncalibrated`, nunca bloquea); distinción
+  correctiva/destructiva en `ActionSpec.risk`; rechazo = activación no
+  consumida + `ActionRejected`. **Contrato sobrevive a la compactación**:
+  `binsai.contract.ViabilityContract` (bloque verbatim + hash +
+  `agent.verify_contract_block` con `ContractVerified`/`ContractReinjected`).
+- **§8 — Trazas.** Cada sorteo de activación es `ActivationDraw` (presión
+  por drive y fuente, TTD, h, p_tick, resultado); `ExpectedEffect`,
+  `GMeasured`, `ActivationFailed`, `ActionRejected` — la cadena causal de
+  una falla se reconstruye desde el log, sin leer prosa de ningún agente.
+- **§12 — Aceptación.** 17 tests en `tests/test_epa_v2_1.py`, uno por cada
+  ítem de la spec.
+
+### CORTE DE COMPARABILIDAD
+
+El desvío ya no entra en la presión como `autonomous` (ahora es
+velocidad-only): las series de presión de v2 no son comparables punto a
+punto con las de v2.1. Los eventos `Perturbed`/`DriveSaturated` son nuevos;
+los payloads de `PressureUpdated` no cambian de nombre pero el escalar
+`pressure` sigue otra regla de agregación.
+
 ## EPA v2 (unreleased)
 
 ### CORTE DE COMPARABILIDAD — dinámica de segundo orden

@@ -11,18 +11,27 @@ from .agent  import BinsaiAgent, Position
 from .drives import Drives, Drive, Stratum, ZoneSpec
 from .fuzzy  import compute_action_distribution, zone_memberships
 from .lifecycle import FIPAState, LifecycleManager
-from .actions import ActionKind, RegulatoryBudgets
+from .actions import ActionKind, RegulatoryBudgets, ExpectedEffect
 from .acl import ACLMessage, Performative, Mailbox
 from .events import (
     EventEmitter, PULSE, ZONE_CHANGED, PRESSURE_UPDATED, SENSOR_INVALID,
     VIABILITY_BREACHED, SATIATED, COUPLED,
+    PERTURBED, DRIVE_SATURATED, EXPECTED_EFFECT, G_MEASURED,
+    ACTIVATION_DRAW, ACTIVATION_FAILED, ACTION_REJECTED,
+    GUARD_SKIPPED_UNCAL, GUARD_REJECTED,
+    CONTRACT_VERIFIED, CONTRACT_REINJECTED,
 )
+from .guards import Guard, GuardVerdict
+from .contract import ViabilityContract
 from .observed import ObservedVariable, VariableKind, RateEstimator, load_contract
 from .sleep import ConsolidationWorker, WakeGuard, SleepConfig
 from .action_registry import ActionSpec, ActionSet
 from .llm import DeepSeekBackend, DryRunBackend, get_backend, LLMTelemetry, ModelConfig
 from .report import SimulationLog
 from .viz import timeline_svg, timeline_html, trajectory_artifact, TrajectoryArtifact
+from .viability_space import (
+    ViabilityRecording, record_viability_run, render_viability_space,
+)
 from .world.world import World, WorldConfig, AgentConfig, AgentFrame, WorldFrame
 
 __all__ = [
@@ -40,6 +49,11 @@ __all__ = [
     # Actions & budgets
     "ActionKind",
     "RegulatoryBudgets",
+    "ExpectedEffect",
+    # Guards & contract (EPA v2.1)
+    "Guard",
+    "GuardVerdict",
+    "ViabilityContract",
     # Communication
     "ACLMessage",
     "Performative",
@@ -53,6 +67,18 @@ __all__ = [
     "VIABILITY_BREACHED",
     "SATIATED",
     "COUPLED",
+    # EPA v2.1 events
+    "PERTURBED",
+    "DRIVE_SATURATED",
+    "EXPECTED_EFFECT",
+    "G_MEASURED",
+    "ACTIVATION_DRAW",
+    "ACTIVATION_FAILED",
+    "ACTION_REJECTED",
+    "GUARD_SKIPPED_UNCAL",
+    "GUARD_REJECTED",
+    "CONTRACT_VERIFIED",
+    "CONTRACT_REINJECTED",
     # Observed variables
     "ObservedVariable",
     "VariableKind",
@@ -78,6 +104,9 @@ __all__ = [
     "timeline_html",
     "trajectory_artifact",
     "TrajectoryArtifact",
+    "ViabilityRecording",
+    "record_viability_run",
+    "render_viability_space",
     # World / simulation
     "World",
     "WorldConfig",

@@ -233,11 +233,14 @@ class TestDriftShapes:
 
 
 class TestAutonomousPressure:
-    def test_p_aut_displacement_term(self):
+    def test_level_is_displacement_over_margin(self):
+        """v2.1 §2.1 — the displacement term moved to `level`:
+        level = min(1, |d|/|L−x*|). `autonomous` is velocity-only."""
         d = make_drive()
         d.deplete(0.20)                    # |d| = 0.20, margin lo = 0.65
         pc = d.pressure_components()
-        assert abs(pc["autonomous"] - 0.20 / 0.65) < 1e-6
+        assert abs(pc["level"] - 0.20 / 0.65) < 1e-6
+        assert pc["autonomous"] == 0.0     # v = 0
 
     def test_p_aut_velocity_term(self):
         """At equal deviation, a drive falling fast is worse than one at rest."""
@@ -250,12 +253,15 @@ class TestAutonomousPressure:
         p_fall = falling.pressure_components()["autonomous"]
         assert p_fall > p_still
 
-    def test_p_aut_eta_zero_is_pure_displacement(self):
+    def test_p_aut_eta_zero_is_zero_velocity(self):
+        """v2.1 §2.1 — autonomous is velocity-only: η=0 kills it even while
+        falling; the displacement lives in `level`."""
         d = make_drive(eta=0.0)
         d.deplete(0.20)
         d.velocity = -0.10
         pc = d.pressure_components()
-        assert abs(pc["autonomous"] - 0.20 / 0.65) < 1e-6
+        assert pc["autonomous"] == 0.0
+        assert abs(pc["level"] - 0.20 / 0.65) < 1e-6
 
 
 class TestLegacySprings:

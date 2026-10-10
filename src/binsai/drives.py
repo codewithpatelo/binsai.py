@@ -46,7 +46,7 @@ from typing import Callable, Optional
 
 from .events import (
     EventEmitter, ZONE_CHANGED, PRESSURE_UPDATED, SATIATED, COUPLED,
-    VIABILITY_BREACHED, TENSION_RELEASED,
+    VIABILITY_BREACHED, TENSION_RELEASED, PERTURBED, DRIVE_SATURATED,
 )
 
 
@@ -110,7 +110,7 @@ class Drive(EventEmitter):
     """
     name:           str
     stratum:        Optional[Stratum] = None  # descriptive taxonomy, does not affect simulation
-    value:          float = 0.70
+    value:          Optional[float] = None  # None = contract initial condition x(t₀)=x*
     set_point:      float = 0.70
     kappa:          float = 0.05
     lambda_rate:    float = 0.005
@@ -146,6 +146,12 @@ class Drive(EventEmitter):
     viability:      tuple[float, float] = (0.0, 1.0)  # viability limits
     observed:       list  = field(default_factory=list)  # list[ObservedVariable]
     history_limit:  int   = 0     # max ticks retained in .history.
+
+    # ── EPA v2.1 (docs/paov2.1.md) — perturbation impulses, TTD ──
+    impulse_iota:   tuple[float, float, float] = (0.02, 0.06, 0.18)  # ι₁ ι₂ ι₃ by crossing severity
+    impulse_zeta:   float = 0.6    # ζ — improvement satiates less than worsening perturbs
+    impulse_tau:    float = 2.0    # τ_u — decay kernel width, in ticks
+    ttd_window:     int   = 30     # N — moving window (ticks) for the TTD slope
     # Default 0 = retain everything — measurement integrity first: any
     # structure that discards data must say so. Set an explicit limit when
     # memory matters; when it acts, `history_dropped` counts the discarded
@@ -159,11 +165,18 @@ class Drive(EventEmitter):
     _history_warned:  bool = field(default=False, repr=False)
     _allostatic:    float = field(default=0.0, repr=False)  # Λ — allostatic load
     _sustained:     dict[str, float] = field(default_factory=dict, repr=False)  # u stimuli
+    _impulses:      list[tuple[int, float]] = field(default_factory=list, repr=False)  # (tick, a_imp)
+    _saturated_at:  Optional[int] = field(default=None, repr=False)  # tick of entry into saturation
+    _saturation_accum: float = field(default=0.0, repr=False)  # Σ ticks spent pinned at the wall
 
     def __post_init__(self) -> None:
         self._init_bus()
-        self.value     = float(self.value)
+        # v2.1 §2.5 — initial condition is the contract's, not inherited:
+        # x(t₀) = x* unless explicitly declared and justified.
         self.set_point = float(self.set_point)
+        if self.value is None:
+            self.value = self.set_point
+        self.value     = float(self.value)
         if not 0.0 <= self.value <= 1.0:
             raise ValueError(f"Drive value must be in [0,1], got {self.value}")
         if not 0.0 <= self.set_point <= 1.0:
@@ -418,7 +431,24 @@ class Drive(EventEmitter):
         self._allostatic = max(0.0, self._allostatic)
         k_eff = self.kappa * math.exp(-self.spring_fatigue * self._allostatic)
         lam = self.lambda_rate * self._drift_phi(abs(d))
+        # v2.1 §1 — u(t) = sustained stimuli + decaying event impulses:
+        #   u = Σ_k ι_k·ψ(t − t_k),  ψ(s) = e^(−s/τ_u)
+        # An impulse is a blow, not a step: the acceleration channel charges
+        # v with the memory of the hit, and the spring has to fight acquired
+        # velocity — the second order exists for exactly this.
         u = sum(self._sustained.values())
+        alive: list[tuple[int, float]] = []
+        for tk, a_imp in self._impulses:
+            s = (tick - tk) * self.dt
+            if s < 0:
+                alive.append((tk, a_imp))     # not yet active (declared early)
+                continue
+            decay = math.exp(-s / max(self.impulse_tau, 1e-9))
+            if decay < 1e-3:
+                continue                      # impulse exhausted
+            alive.append((tk, a_imp))
+            u += a_imp * decay
+        self._impulses = alive
 
         # Semi-implicit Euler is unstable for ω·h ≳ 2 (ω ≈ √κ). Subdivide
         # the tick so each substep stays inside the stable region — dt is
@@ -473,6 +503,76 @@ class Drive(EventEmitter):
             "g":         round(g, 4) if expected else None,
         })
         return g
+
+    def apply_impulse(self, tick: int, magnitude: float, toward: bool = False) -> None:
+        """v2.1 §1 — inject a decaying impulse into the acceleration channel.
+
+        An event impulse is a blow, not a step: it enters `a`, charges `v`
+        with the memory of the hit, and decays with kernel ψ(s)=e^(−s/τ_u).
+        `toward=True` satiates (ι<0, pulls back to x*); `toward=False`
+        perturbs (ι>0, pushes away). The sign resolves against the current
+        side of the deviation, so the same declaration means the same thing
+        in deficit and in superavit.
+        """
+        d = self.value - self.set_point
+        sgn = -1.0 if d < 0 else 1.0
+        a_imp = -magnitude * sgn if toward else magnitude * sgn
+        self._impulses.append((int(tick), a_imp))
+        self.emit(PERTURBED, {
+            "drive":     self.name,
+            "tick":      int(tick),
+            "impulse":   round(magnitude if not toward else -magnitude, 6),
+            "direction": "toward" if toward else "away",
+            "a_imp":     round(a_imp, 6),
+            "tau":       self.impulse_tau,
+        })
+
+    @property
+    def impulses(self) -> list[tuple[int, float]]:
+        """Active/last impulses as (tick, a_imp) — v2.1 §6 prompt material."""
+        return list(self._impulses)
+
+    # ── Saturation (v2.1 §2.4) ────────────────────────────────────────────
+
+    @property
+    def saturated(self) -> bool:
+        """True while pinned at the viability wall (|d| ≥ |L − x*|)."""
+        return self._saturated_at is not None
+
+    @property
+    def saturation_time(self) -> float:
+        """Accumulated time pinned at the wall, in time units (tick·dt)."""
+        total = self._saturation_accum
+        if self._saturated_at is not None:
+            total += (self._history[-1][0] - self._saturated_at) * self.dt \
+                if self._history else 0.0
+        return total
+
+    # ── Ghost projection (v2.1 §4) ────────────────────────────────────────
+
+    def time_to_death(self, n: Optional[int] = None) -> Optional[float]:
+        """TTD — projected time to the viability wall by basal trajectory.
+
+        Slope over the last `n` ticks (default self.ttd_window) vs the margin
+        to the wall the trajectory is heading for. None when the projection
+        does not approach a wall (TTD = ∞).
+        """
+        n = n if n is not None else self.ttd_window
+        hist = self._history[-(max(2, n) + 1):]
+        if len(hist) < 2:
+            return None
+        span = hist[-1][0] - hist[0][0]
+        if span <= 0:
+            return None
+        slope = (hist[-1][1] - hist[0][1]) / span      # per tick
+        if abs(slope) < 1e-12:
+            return None
+        lo_v, hi_v = self.viability
+        bound = lo_v if slope < 0 else hi_v
+        ttd_ticks = (bound - hist[-1][1]) / slope
+        if ttd_ticks < 0:
+            return None
+        return ttd_ticks * self.dt
 
     @property
     def deviation(self) -> float:
@@ -562,37 +662,55 @@ class Drive(EventEmitter):
         return self.kappa * math.exp(-self.spring_fatigue * self._allostatic)
 
     def pressure_components(self) -> dict:
-        """Traceable split of what is pushing this drive right now.
+        """Traceable split of what is pushing this drive right now (v2.1 §2).
 
-        Three separate sources — kept distinct on purpose:
-            level:      observed-variable level pressure (where you are)
-            pace:       observed-variable pacing pressure (how fast it degrades)
-            autonomous: pressure from the drive's own dynamics. Under
-                        magnetic-2nd (paov2.tex §4.1):
-                            |d|/|L−x*| + η·|v|/v_ref
-                        — velocity fills the role tension σ had in the
-                        pulsatile formulation: at equal deviation, a system
-                        accelerating toward deficit is worse off than one
-                        at rest. Under legacy springs it is |σ|.
+        Every source returns a value in [0, 1] — the 2026-10-09 night had
+        level = 1.934, which breaks any downstream aggregation. Sources:
+
+            level:      min(1, |d| / |L − x*|)        — drive's own deviation,
+                        L on the side the deviation points to (always calibrated)
+            pace:       max over observed variables, min(1, p_pace)
+                        (None = uncalibrated: no wired sensor has a pace signal)
+            autonomous: min(1, η·|v| / v_ref)         — velocity fills the role
+                        tension σ had in the pulsatile formulation
+
+        An uncalibrated source is NOT zero — it is excluded from the max and
+        reported in `uncalibrated`. Averaging a missing source in lowers the
+        pressure by a third; that was the 0.465-with-a-dead-drive night.
         """
-        level = pace = None
+        d = self.value - self.set_point
+        lo_v, hi_v = self.viability
+        bound = lo_v if d < 0 else hi_v
+        margin = abs(bound - self.set_point) or 1e-9
+        level = min(1.0, abs(d) / margin)
+
+        pace = None
+        uncalibrated: list[str] = []
         for var in self.observed:
-            lp = var.last_level_pressure
-            if lp is not None and (level is None or lp > level):
-                level = lp
             pp = var.last_pace_pressure
-            if pp is not None and (pace is None or pp > pace):
-                pace = pp
+            if pp is None:
+                uncalibrated.append(var.name)
+                continue
+            pace = min(1.0, pp) if pace is None else max(pace, min(1.0, pp))
+        if not self.observed:
+            uncalibrated.append("pace")
+
         if self.spring == "magnetic-2nd":
-            d = self.value - self.set_point
-            lo_v, hi_v = self.viability
-            bound = lo_v if d < 0 else hi_v
-            margin = abs(bound - self.set_point) or 1e-9
-            autonomous = abs(d) / margin + self.eta * abs(self.velocity) / self.v_ref
+            autonomous = min(1.0, self.eta * abs(self.velocity) / self.v_ref)
         else:
-            autonomous = abs(self._tension)
-        return {"level": level, "pace": pace, "tension": self._tension,
-                "autonomous": autonomous}
+            autonomous = min(1.0, abs(self._tension))
+
+        calibrated = [p for p in (level, pace, autonomous) if p is not None]
+        pressure = max(calibrated) if calibrated else 0.0
+        # v2.1 §2.4 — pinned at the wall the level carries no information
+        # anymore: the pressure is 1 and the accumulated duration becomes
+        # the informative variable (reported via saturation_time).
+        saturated = abs(d) >= margin
+        if saturated:
+            pressure = 1.0
+        return {"level": level, "pace": pace, "autonomous": autonomous,
+                "tension": self._tension, "pressure": pressure,
+                "saturated": saturated, "uncalibrated": uncalibrated}
 
     @property
     def history(self) -> list[tuple[int, float]]:
@@ -682,16 +800,32 @@ class Drive(EventEmitter):
                 "tick":   tick,
             })
 
-        # Observed variables: need pressure = max over valid sensors (§4.8)
+        # Observed variables: poll sensors so their level/pace pressures are
+        # current for pressure_components() (max over valid sensors, §4.8).
         if self.observed:
             self._poll_observed(tick)
-        # Spec: p = max(p_level, p_pace, p_autonomous). Fold the autonomous
-        # source in unconditionally — drives without wired sensors would
-        # otherwise report pressure=None forever even under large deviation.
+        # v2.1 §2 — pressure = max over CALIBRATED sources, conjunctive
+        # saturation at the wall. An uncalibrated source is excluded, never 0.
         comps = self.pressure_components()
-        all_p = [v for v in (comps["level"], comps["pace"], comps["autonomous"])
-                 if v is not None]
-        self.pressure = max(all_p) if all_p else self.pressure
+        self.pressure = comps["pressure"]
+
+        # v2.1 §2.4 — saturation bookkeeping: the entry instant is an event,
+        # the accumulated duration is an observed variable of its own right.
+        d = self.value - self.set_point
+        margin = abs((lo_v if d < 0 else hi_v) - self.set_point) or 1e-9
+        if abs(d) >= margin:
+            if self._saturated_at is None:
+                self._saturated_at = tick
+                self.emit(DRIVE_SATURATED, {
+                    "drive":       self.name,
+                    "tick":        tick,
+                    "value":       round(self.value, 4),
+                    "limit":       lo_v if d < 0 else hi_v,
+                    "entered_at":  tick,
+                })
+        elif self._saturated_at is not None:
+            self._saturation_accum += (tick - self._saturated_at) * self.dt
+            self._saturated_at = None
 
         new_zone = self._zone_with_hysteresis()
         memberships = self.zone_memberships()
@@ -736,17 +870,27 @@ class Drive(EventEmitter):
         })
 
     def _poll_observed(self, tick: int) -> None:
-        """Aggregate pressure from observed variables — max (non-fungible)."""
+        """Poll sensors so pressure_components() has current level/pace.
+
+        The drive subscribes to each variable's Perturbed events once
+        (v2.1 §1: the variable publishes, the drive subscribes, the drive
+        never polls the variable for perturbations). `driving_variable` is
+        the strongest calibrated sensor this tick.
+        """
         best_p, best_var = None, None
         invalid: list[str] = []
         for var in self.observed:
+            if not getattr(var, "_perturb_subscribed_drives", None):
+                var._perturb_subscribed_drives = set()
+            if id(self) not in var._perturb_subscribed_drives:
+                var.on(PERTURBED, self._on_perturbation)
+                var._perturb_subscribed_drives.add(id(self))
             p = var.pressure(tick)
             if p is None:
                 invalid.append(var.name)
                 continue
             if best_p is None or p > best_p:
                 best_p, best_var = p, var.name
-        self.pressure = best_p
         self.driving_variable = best_var
         self.emit(PRESSURE_UPDATED, {
             "drive":             self.name,
@@ -755,6 +899,22 @@ class Drive(EventEmitter):
             "invalid_sensors":   invalid,
             "tick":              tick,
         })
+
+    def _on_perturbation(self, payload: dict) -> None:
+        """Receive a Perturbed event from an observed variable (v2.1 §1.5).
+
+        The variable publishes; the drive subscribes. The impulse enters the
+        acceleration channel with its magnitude and direction. The variable
+        speaks in time units (payload "t"); the drive converts to its own
+        tick grid.
+        """
+        t_var = float(payload.get("t", payload.get("tick", 0.0)))
+        tick = int(round(t_var / self.dt)) if self.dt else int(t_var)
+        self.apply_impulse(
+            tick,
+            abs(float(payload.get("impulse", 0.0))),
+            toward=(payload.get("direction") == "toward"),
+        )
 
     def _resolve_satiation(self, name: str):
         import math
@@ -844,6 +1004,25 @@ class Drives:
         if drives:
             for d in drives:
                 self._drives[d.name] = d
+
+    @property
+    def pressure(self) -> float:
+        """v2.1 §2.3 — conjunctive system pressure.
+
+        The viable set K is the intersection of every contract: dying by one
+        variable is dying. So the system pressure is the max over drives —
+        never the mean, which would average a dead drive with a healthy one
+        into lukewarmth (the 0.465-with-metabolic-at-the-wall night).
+        """
+        vals = [d.pressure for d in self._drives.values()
+                if d.pressure is not None]
+        return max(vals) if vals else 0.0
+
+    def time_to_death(self, n: Optional[int] = None) -> Optional[float]:
+        """v2.1 §4 — system TTD: time to the first viability wall reached."""
+        ttds = [d.time_to_death(n) for d in self._drives.values()]
+        finite = [t for t in ttds if t is not None]
+        return min(finite) if finite else None
 
     def set_coupling(self, matrix: dict[str, dict[str, float]], tau: int = 0) -> None:
         """Set coupling matrix W where W[src][tgt] = weight, with optional delay tau."""

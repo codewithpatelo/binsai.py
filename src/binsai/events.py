@@ -35,6 +35,19 @@ SATIATED           = "Satiated"
 COUPLED            = "Coupled"
 TENSION_RELEASED   = "TensionReleased"
 
+# EPA v2.1 (docs/paov2.1.md)
+PERTURBED            = "Perturbed"            # observed-variable zone crossing → impulse
+DRIVE_SATURATED      = "DriveSaturated"       # drive pinned at its viability limit
+EXPECTED_EFFECT      = "ExpectedEffect"       # action declared its quantitative prediction
+G_MEASURED           = "GMeasured"            # Δ_obs/Δ_exp verified at byWhen
+ACTIVATION_DRAW      = "ActivationDraw"       # gate draw: pressure, TTD, h, p_tick, result
+ACTIVATION_FAILED    = "ActivationFailed"     # activation consumed without measured effect
+ACTION_REJECTED      = "ActionRejected"       # guard rejected an action
+GUARD_SKIPPED_UNCAL  = "GuardSkippedUncalibrated"  # guard predicate had uncalibrated signals
+GUARD_REJECTED       = "GuardRejected"        # guard blocked (all signals calibrated)
+CONTRACT_VERIFIED    = "ContractVerified"     # viability contract integrity check passed
+CONTRACT_REINJECTED  = "ContractReinjected"   # contract block was missing and was re-injected
+
 
 @dataclass
 class Subscription:
