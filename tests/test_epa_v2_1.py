@@ -213,46 +213,74 @@ class TestQualitySignalG:
         assert agent._refractory_until == 0.0   # not consumed
 
 
+def mk(**kw):
+    """Basal TTD test drive: magnetic-2nd, λ=0, κ=0.6, w=1.0, f=0.01."""
+    base = dict(name="d", set_point=0.5, viability=(0.0, 1.0),
+                lambda_rate=0.0, spring="magnetic-2nd", kappa=0.6,
+                spring_reach=1.0, spring_fatigue=0.01,
+                allostatic_recovery=0.0, damping=0.1, dt=1.0)
+    base.update(kw)
+    return Drive(**base)
+
+
 class TestTTDProjection:
-    """§12.6, §12.7 — TTD from the history; the rate respects the horizon."""
+    """§12.7 — TTD is a counterfactual forward integration with u = 0:
+    well-defined at the wall, tells a dying drive from one the spring
+    recovers, and integrates the allostatic load forward."""
 
-    def test_ttd_matches_manual_slope(self):
-        d = make_drive(value=0.99, dt=1 / 60)   # dt = 1 minute
-        # fall toward lo at 0.02/ tick from 0.99
-        d._history = [(i, 0.99 - i * 0.02) for i in range(40)]
-        ttd = d.time_to_death(n=30)
-        # window = samples 9..39: slope −0.02/tick, last value 0.21
-        expected = (0.99 - 39 * 0.02) / 0.02 * d.dt
-        assert ttd == pytest.approx(expected, rel=1e-9)
+    def test_basal_ttd_at_the_wall_dying(self):
+        """At the wall with the drift still pushing outward: TTD ~ 0."""
+        d = mk(value=0.15, set_point=0.15, lambda_rate=0.35)
+        for t in range(1, 121):
+            d.update(tick=t)
+        assert d.saturated
+        ttd = Drives([d]).time_to_death(horizon_ticks=600)
+        assert ttd is not None and ttd <= 2 * d.dt
 
-    def test_system_ttd_is_the_minimum(self):
-        fast = make_drive(name="a", value=0.99, dt=1.0)
-        fast._history = [(i, 0.99 - i * 0.02) for i in range(40)]
-        slow = make_drive(name="b", value=0.99, dt=1.0)
-        slow._history = [(i, 0.99 - i * 0.005) for i in range(40)]
-        drives = Drives([fast, slow])
-        assert drives.time_to_death() == pytest.approx(fast.time_to_death())
+    def test_basal_ttd_at_the_wall_recovering(self):
+        """At the wall but the spring recovers it: TTD ∞. A saturation-flag
+        patch would return 0 and lie."""
+        d = mk(value=0.0, set_point=0.5, lambda_rate=0.0,
+               spring_reach=1.0, damping=0.3)
+        d._history = [(i, 0.0) for i in range(40)]
+        assert Drives([d]).time_to_death(horizon_ticks=600) is None
+
+    def test_basal_ttd_names_the_wall(self):
+        d = mk(value=0.15, set_point=0.15, lambda_rate=0.35)
+        for t in range(1, 21):
+            d.update(tick=t)
+        assert Drives([d]).project_basal(600)[d.name][1] == "upper"
+
+    def test_fatigue_brings_projected_death_closer(self):
+        """The projection integrates Λ forward: two drives identical except
+        for the accumulated allostatic load cannot give the same TTD."""
+        rested = mk(value=0.5, set_point=0.15, lambda_rate=0.05)
+        tired = mk(value=0.5, set_point=0.15, lambda_rate=0.05)
+        tired._allostatic = 5.0
+        for d in (rested, tired):
+            d._history = [(0, 0.5)]
+        t_rested = Drives([rested]).time_to_death(horizon_ticks=5000)
+        t_tired = Drives([tired]).time_to_death(horizon_ticks=5000)
+        assert t_tired is not None and (t_rested is None or t_tired < t_rested)
 
     def test_rate_respects_the_horizon(self):
-        """TTD = 12 min, θ = 0.2 → E[wait] = 1/h ≤ 2.4 min."""
-        d = make_drive(name="metabolic", value=0.84, dt=1 / 60,
-                       lambda_rate=0.0, basal_direction=None, kappa=0.0)
-        # exactly 31 samples: slope −0.02/tick over the window, last 0.24
-        d._history = [(i, 0.84 - i * 0.02) for i in range(31)]
-        ttd = d.time_to_death()
-        assert ttd == pytest.approx(12 / 60, rel=1e-9)   # 12 minutes
+        """TTD ≈ 12 min, θ = 0.2 → E[wait] = 1/h ≤ θ·TTD at the gate."""
+        d = make_drive(name="metabolic", value=0.50, dt=1 / 60,
+                       lambda_rate=0.0, basal_direction=None, kappa=0.0,
+                       damping=0.0, velocity=2.5)   # coast to the wall in 12 min
+        d._history = [(0, 0.50)]
+        assert Drives([d]).time_to_death(horizon_ticks=600) == pytest.approx(12 / 60, rel=1e-9)
 
         agent = BinsaiAgent(name="A", drives=Drives([d]), dry_run_llm=True,
                             activation_theta=0.2)
         agent.activate()
         draws = []
         agent.on("ActivationDraw", lambda p: draws.append(p))
-        agent.tick(t=31)   # appends (31, 0.24): the window keeps its slope
+        agent.tick(t=1)
         h = draws[-1]["h"]
-        # the invariant the spec §12.7 accepts: E[wait] ≤ θ·TTD as computed
-        # at the gate (exact when h_max does not bind)
-        assert 1.0 / h <= 0.2 * draws[-1]["ttd"]
         assert draws[-1]["ttd"] is not None
+        # event fields are rounded for the log: compare within its precision
+        assert 1.0 / h <= 0.2 * draws[-1]["ttd"] + 1e-4
 
 
 class TestGuards:
@@ -406,7 +434,7 @@ class TestLogDoesNotLie:
         p_expected = comps["pressure"]
         h_expected = activation_hazard(p_expected, has_demand=False,
                                        pending_labels=0)
-        ttd = d.time_to_death()             # frozen → None
+        ttd = Drives([d]).time_to_death(horizon_ticks=600)   # frozen → None
         dt = d.dt
         assert ev["dt"] == dt
         assert ev["pressure"] == pytest.approx(p_expected, rel=1e-6)

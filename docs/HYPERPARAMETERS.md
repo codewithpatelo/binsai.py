@@ -15,8 +15,11 @@ libre por necesidad.
 | `g_nulo` | `agent.g_nulo` | umbral de efecto nulo (`|g| < g_nulo` → ι₂, activación no consumida) | 0.15 |
 | `θ` | `activation_theta` | fracción del TTD admisible como espera esperada: `1/h ≤ θ·TTD` | 0.2 |
 | `β` | `activation_beta` | fracción del TTD para el refractario: `ref = β·TTD` (clampado) | 0.1 |
-| `N` | `ttd_window` | ventana móvil (ticks) para la pendiente del TTD | 30 |
 | `h_max` | `activation_h_max` | techo de la tasa. Debe quedar por encima de `1/(θ·TTD_mín)` para que el anclaje θ actúe — la noche del 09 tenía `h_max=12/h` y no podía despertar antes de 5 min | 60 |
+
+El horizonte del TTD es la **ventana restante** (`agent.window_ticks`), una
+cantidad operativa, no un hiperparámetro: si ninguna pared se cruza antes
+de que la ventana cierre, `TTD = ∞` para esta ventana (§4).
 
 ## Delta v2.1 — eliminados o degradados
 
@@ -49,7 +52,7 @@ viabilidad, no en el código (paov2.1 §11).
 | Zonas algedónicas | `θ_z`, histéresis (`alpha_in`, `alpha_out`), ancho `ω_z` | contrato; la histéresis por la granularidad de acción |
 | Presión | `level = min(1, \|d\|/\|L−x*\|)`, `pace` (variables observadas), `autonomous = min(1, η·\|v\|/v_ref)` | todas las fuentes en `[0,1]`; `η`/`v_ref` operativos; agregación conjuntiva entre drives (`Drives.pressure = max`) |
 | Pulso | `Δt` (`dt`) | operativo |
-| Activación | `h` (`activation_h_pressure`, `h_demand`, `h_backlog`), anclaje `θ·TTD` (`activation_theta`, `ttd_window`), refractario `β·TTD` (`activation_beta`, `activation_refractory_min`/`activation_refractory`) | tasa por unidad de tiempo — `1/h` = espera media a actuar; anclada al horizonte que queda, no elegida a mano (docs/paov2.1.md §5, docs/ACTIVATION.md) |
+| Activación | `h` (`activation_h_pressure`, `h_demand`, `h_backlog`), anclaje `θ·TTD` (`activation_theta`, horizonte = ventana restante), refractario `β·TTD` (`activation_beta`, `activation_refractory_min`/`activation_refractory`) | tasa por unidad de tiempo — `1/h` = espera media a actuar; anclada al horizonte que queda, no elegida a mano (docs/paov2.1.md §5, docs/ACTIVATION.md) |
 
 ## Libres por necesidad: `λ⁰`, `κ`, `f`
 

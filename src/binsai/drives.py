@@ -151,7 +151,6 @@ class Drive(EventEmitter):
     impulse_iota:   tuple[float, float, float] = (0.02, 0.06, 0.18)  # ι₁ ι₂ ι₃ by crossing severity
     impulse_zeta:   float = 0.6    # ζ — improvement satiates less than worsening perturbs
     impulse_tau:    float = 2.0    # τ_u — decay kernel width, in ticks
-    ttd_window:     int   = 30     # N — moving window (ticks) for the TTD slope
     persist_state:  Optional[bool] = None   # v2.1 §2.5 — does state carry between
     #                                     windows? Declared per drive, never implicit:
     #                                     True → the inherited (value, velocity) MUST be
@@ -573,30 +572,9 @@ class Drive(EventEmitter):
         return total
 
     # ── Ghost projection (v2.1 §4) ────────────────────────────────────────
-
-    def time_to_death(self, n: Optional[int] = None) -> Optional[float]:
-        """TTD — projected time to the viability wall by basal trajectory.
-
-        Slope over the last `n` ticks (default self.ttd_window) vs the margin
-        to the wall the trajectory is heading for. None when the projection
-        does not approach a wall (TTD = ∞).
-        """
-        n = n if n is not None else self.ttd_window
-        hist = self._history[-(max(2, n) + 1):]
-        if len(hist) < 2:
-            return None
-        span = hist[-1][0] - hist[0][0]
-        if span <= 0:
-            return None
-        slope = (hist[-1][1] - hist[0][1]) / span      # per tick
-        if abs(slope) < 1e-12:
-            return None
-        lo_v, hi_v = self.viability
-        bound = lo_v if slope < 0 else hi_v
-        ttd_ticks = (bound - hist[-1][1]) / slope
-        if ttd_ticks < 0:
-            return None
-        return ttd_ticks * self.dt
+    # TTD is a COUNTERFACTUAL INTEGRATION, not a slope fit: see
+    # Drives.project_basal / Drives.time_to_death — the forward simulation
+    # with u = 0, live coupling, and the allostatic load still integrating.
 
     @property
     def deviation(self) -> float:
@@ -1042,11 +1020,66 @@ class Drives:
                 if d.pressure is not None]
         return max(vals) if vals else 0.0
 
-    def time_to_death(self, n: Optional[int] = None) -> Optional[float]:
-        """v2.1 §4 — system TTD: time to the first viability wall reached."""
-        ttds = [d.time_to_death(n) for d in self._drives.values()]
-        finite = [t for t in ttds if t is not None]
-        return min(finite) if finite else None
+    def project_basal(self, horizon_ticks: int) -> dict[str, Optional[tuple[float, str]]]:
+        """v2.1 §4 — basal TTD: integrate the system forward with u = 0.
+
+        Counterfactual: nobody acts and nothing perturbs. The collection is
+        copied, sustained stimuli and event impulses are zeroed on ALL
+        drives, and the system integrates with live coupling. Per drive,
+        returns (time to crossing, wall) or None when it does not cross
+        within the horizon.
+
+        No window, no line fit: it is well-defined AT the wall, and it
+        tells a drive that is dying from one the spring recovers. The
+        allostatic load keeps integrating during the projection, so
+        accumulated fatigue brings the projected death closer.
+        """
+        import copy
+        sim = Drives()
+        for name, d in self._drives.items():
+            c = copy.copy(d)                     # scalars copied
+            c._history = list(d._history)        # projection appends: don't touch the original log
+            c._events = list(d._events)
+            c._sustained = {}
+            c._impulses = []
+            c.observed = []                      # u = 0: sensors don't move the dynamics
+            # the copy must stay silent: its bus would otherwise call
+            # handlers bound to the live agent and leak projection events
+            c._bus_handlers = {}
+            c._bus_any = {}
+            c._bus_subs = {}
+            sim._drives[name] = c
+        sim._coupling = self._coupling           # shared read-only matrix
+        sim._coupling_tau = self._coupling_tau
+        out: dict[str, Optional[tuple[float, str]]] = {
+            n: None for n in sim._drives}
+        t0 = max((d._history[-1][0] if d._history else 0)
+                 for d in sim._drives.values())
+        for k in range(1, int(horizon_ticks) + 1):
+            sim.update_all(tick=t0 + k)              # live coupling
+            for name, d in sim._drives.items():
+                if out[name] is not None:
+                    continue
+                lo, hi = d.viability
+                if d.value >= hi - 1e-9:
+                    out[name] = (k * d.dt, "upper")
+                elif d.value <= lo + 1e-9:
+                    out[name] = (k * d.dt, "lower")
+            if all(v is not None for v in out.values()):
+                break
+        return out
+
+    def time_to_death(self, horizon_ticks: int) -> Optional[float]:
+        """v2.1 §4 — basal system TTD: the first crossing of any drive.
+
+        None = no drive crosses within the horizon (∞ for this window). A
+        drive at the wall that is dying gives ~0; one the spring recovers
+        gives None. No saturation special-case is needed: the wall is part
+        of the counterfactual integration, not a flag.
+        """
+        crossings = [v[0] for v in self.project_basal(horizon_ticks).values()
+                     if v is not None]
+        return min(crossings) if crossings else None
 
     def set_coupling(self, matrix: dict[str, dict[str, float]], tau: int = 0) -> None:
         """Set coupling matrix W where W[src][tgt] = weight, with optional delay tau."""

@@ -110,6 +110,9 @@ class BinsaiAgent(EventEmitter):
         activation_refractory_min: float    = 1.0,
         g_ok:                  float        = 0.5,   # g ≥ g_ok → effect achieved
         g_nulo:                float        = 0.15,  # |g| < g_nulo → null effect
+        window_ticks:          Optional[int] = 600,  # v2.1 §4 — the TTD horizon
+        # is the remaining window, not an arbitrary number: if no wall is
+        # crossed before the window closes, TTD = ∞ for this window.
         guards:                Optional[list] = None,  # v2.1 §7 Guard predicates
         contract:              Optional[ViabilityContract] = None,  # v2.1 §7.3
     ) -> None:
@@ -204,6 +207,7 @@ class BinsaiAgent(EventEmitter):
         self.activation_refractory_min = activation_refractory_min
         self.g_ok   = g_ok
         self.g_nulo = g_nulo
+        self.window_ticks = window_ticks
         self.guards: list[Guard] = list(guards or [])
         self.contract = contract
         # g ledger — v2.1 §3: declarations pending verification
@@ -533,10 +537,15 @@ class BinsaiAgent(EventEmitter):
             h_demand=self.activation_h_demand,
             h_backlog=self.activation_h_backlog,
         )
-        ttd = self.drives.time_to_death()
-        if ttd is not None and ttd > 0:
-            h_required = 1.0 / max(1e-9, self.activation_theta * ttd)
-            h = min(self.activation_h_max, max(h, h_required))
+        ttd = self.drives.time_to_death(
+            horizon_ticks=self.window_ticks_remaining)
+        if ttd is None:
+            pass                            # no wall within the window: floor
+        elif ttd <= dt:
+            h = self.activation_h_max       # at the wall
+        else:
+            h = min(self.activation_h_max,
+                    max(h, 1.0 / max(1e-9, self.activation_theta * ttd)))
         p_tick = activation_probability(h, dt)
         draw = self._rng.random()
         acted = draw < p_tick
@@ -937,12 +946,21 @@ class BinsaiAgent(EventEmitter):
 
     # ── EPA v2.1: TTD-anchored refractory, g ledger, guards, contract ─────
 
+    @property
+    def window_ticks_remaining(self) -> int:
+        """v2.1 §4 — the TTD horizon is the remaining window, not an
+        arbitrary number: ~690 steps for an 11.5 h window at 1-min ticks."""
+        if self.window_ticks is None:
+            return 600
+        return max(0, self.window_ticks - self._current_tick)
+
     def _apply_refractory(self, t: int) -> None:
         """v2.1 §5.3 — refractory scales with the horizon: β·TTD_system,
         clamped to [refractory_min, refractory]. With no wall approaching
         (TTD = ∞) it stays at the fixed maximum."""
         dt = getattr(next(iter(self.drives), None), "dt", 1.0) or 1.0
-        ttd = self.drives.time_to_death()
+        ttd = self.drives.time_to_death(
+            horizon_ticks=self.window_ticks_remaining)
         if ttd is not None and ttd > 0:
             ref = min(self.activation_refractory,
                       max(self.activation_refractory_min,

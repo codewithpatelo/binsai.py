@@ -34,8 +34,17 @@ aceptación §12.1 "v2 carga" vive en el harness TS, no en Binsai.)
   activación NO consumida, `ActivationFailed`; `g < 0`: impulso ι₃,
   `harmful`, inhabilitada para la misma falla en la ventana.
   `agent.attempts` como libro de intentos.
-- **§4 — TTD.** Proyección lineal sobre los últimos `N` ticks del log:
-  `Drive.time_to_death()`, `Drives.time_to_death()` = min.
+- **§4 — TTD contrafáctico, no ajuste de recta.** `Drives.project_basal(
+  horizon_ticks)` integra hacia adelante con `u = 0` (copia del sistema,
+  impulsos y estímulos anulados, acoplamiento vivo, Λ integrando): por
+  drive `(tiempo al cruce, pared)` o None. El horizonte es la **ventana
+  restante** (`agent.window_ticks_remaining`), no un número arbitrario —
+  si no cruza antes del cierre, TTD = ∞ para esta ventana. En el agente:
+  `ttd=None` → piso; `ttd ≤ dt` → `h_max` (en la pared); si no, anclaje
+  `1/(θ·ttd)`. La ventana móvil `N` y el método slope de Drive se
+  eliminaron. v2.2 queda especificado en §10 como la misma integración con
+  `u = E[û(t)]`, distribución por cuantil P10, y el límite honesto de una
+  sola noche de eventos.
 - **§5 — La tasa respeta el horizonte.** `E[espera] = 1/h ≤ θ·TTD` →
   `h = min(h_max, max(h_base, 1/(θ·TTD)))`; refractario
   `min(ref_max, max(ref_min, β·TTD))`. `h_max` default 60/h.

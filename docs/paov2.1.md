@@ -319,23 +319,47 @@ arregle y el agente empiece a actuar de verdad.
 
 ## 4. Proyección fantasma: tiempo a muerte
 
-### 4.1 Cálculo
+### 4.1 Cálculo — integración contrafáctica, no ajuste de recta
 
-Sobre una ventana móvil de los últimos `N` ticks (por defecto 30), para cada
-drive:
+`Drives.project_basal(horizon_ticks)` integra el sistema hacia adelante con
+`u = 0`: nadie actúa y nada perturba. Se copia el conjunto, se anulan los
+estímulos sostenidos y los impulsos de evento de TODOS los drives, y se
+integra con el acoplamiento vivo. Por cada drive devuelve
+`(tiempo al cruce, pared)` o `None` si no cruza dentro del horizonte.
+
+No usa ventana ni ajuste de recta: está bien definido en la pared, y
+distingue un drive que se muere de uno que el resorte recupera. La carga
+alostática sigue integrando durante la proyección, así que la fatiga
+acumulada acerca la muerte proyectada.
+
+`TTD` = projected time to death by basal negligence. El del sistema es el
+primer cruce de cualquier drive:
 
 ```
-pendiente_i = (x_i(t) − x_i(t − N·Δt)) / (N·Δt)
-margen_i    = L_i − x_i(t)                      // con el signo del lado en que está
-TTD_i       = margen_i / pendiente_i            // si pendiente apunta al límite, si no: ∞
+TTD_sistema = min_i (tiempos de cruce de project_basal)
 ```
 
-`TTD` = projected time to death by basal negligence. Es por drive, y el del
-sistema es el mínimo:
+**El horizonte es la ventana restante, no un número arbitrario.** Si no
+cruza antes de que la ventana cierre, `TTD = ∞` para esta ventana, que es
+la respuesta operativamente útil. Y acota el costo: a tick de un minuto y
+ventana de 11,5 h son ~690 pasos sobre una copia — nada.
+
+En el agente, `TTD = None` significa infinito y `TTD ≈ 0` significa en la
+pared:
 
 ```
-TTD_sistema = min_i TTD_i
+ttd = self.drives.time_to_death(horizon_ticks=self.window_ticks_remaining)
+if ttd is None:
+    pass                                   # ninguna pared en la ventana: piso
+elif ttd <= self.dt:
+    h = self.activation_h_max              # en la pared
+else:
+    h = min(self.activation_h_max,
+            max(h, 1.0 / max(1e-9, self.activation_theta * ttd)))
 ```
+
+Un drive en la pared que se muere da ~0; uno que el resorte recupera da
+`None`. No hace falta ningún caso especial de saturación.
 
 ### 4.2 Por qué importa
 
@@ -562,9 +586,27 @@ y obtener un projected time to death by catastrophic perturbance— pero
 necesita que exista una historia de impulsos sobre la cual pronosticar. Hoy
 no existe: la noche del 09 tuvo cero eventos de perturbación en la dinámica.
 Pronosticar sobre lo que hay sería pronosticar la deriva basal, que ya se
-proyecta linealmente en §4.
+proyecta con la integración contrafáctica de §4.
 
 Entra cuando §1 esté corriendo y haya varias ventanas con eventos reales.
+
+### La forma que tiene que tener (para no improvisar cuando llegue)
+
+`ttd_forecast` es **la misma integración de §4 con `u = E[û(t)]`**, no otro
+modelo. Lo que hay que estimar de la historia de la ventana es el proceso de
+llegada de impulsos: una tasa por variable observada y una magnitud media
+por severidad de cruce. Con eso se integra hacia adelante con la carga
+esperada.
+
+Como es estocástico, no devuelve un número sino una distribución: se corren
+K trayectorias con impulsos muestreados y se reporta un cuantil pesimista
+(P10) junto al basal. En el prompt quedan dos números: "si nada pasa, X;
+dada la turbulencia de esta noche, Y". La diferencia entre los dos es la
+medida de cuánta de la urgencia viene de la negligencia y cuánta del entorno.
+
+Límite honesto: con una noche, una variable y tres cruces, la tasa estimada
+no significa nada. Esto necesita varias ventanas con eventos reales de §1
+antes de ser más que ruido con decimales.
 
 ## 11. Censo de hiperparámetros: delta
 
@@ -579,7 +621,6 @@ Nuevos:
 | `g_nulo` | umbral de efecto nulo | 0.15 |
 | `θ` | fracción del `TTD` admisible como espera esperada | 0.2 |
 | `β` | fracción del `TTD` para el refractario | 0.1 |
-| `N` | ventana móvil para la pendiente del `TTD` | 30 ticks |
 
 Eliminados o degradados:
 
@@ -587,6 +628,9 @@ Eliminados o degradados:
 - Refractario fijo: reemplazado por `β · TTD`.
 - Cualquier tabla zona → tasa: eliminada.
 - Cualquier presión que entre como 0 por estar sin calibrar: eliminada.
+- La ventana móvil `N` para la pendiente del TTD: eliminada. El TTD es una
+  integración contrafáctica (§4) y su horizonte es la **ventana restante**,
+  una cantidad operativa — no un hiperparámetro.
 
 Todos los valores iniciales son provisionales y van en el contrato de
 viabilidad, no en el código.
