@@ -4,61 +4,65 @@
 
 ### Delta sobre v2 — spec completa en `docs/paov2.1.md`
 
-Cada cambio anclado a una observación de la corrida multiply-overnight del
-2026-10-09 (166 muestras/drive, cero discontinuidades, `rate` null 166/166,
-presión 0.465 con un drive en el límite, `level` 1.934, 28 min de
-saturación, guarda que leyó ausencia como desacuerdo).
+**Framing (rev 2026-10-10): EPA v2 nunca corrió.** El proceso de la noche
+del 09 integró ley de Hooke con pared en ±1 (primer orden, resorte lineal,
+clipping) — firma vieja de `integrateProaction`, el módulo v2 no cargaba.
+v2.1 es el conjunto de correcciones que entran antes de que v2 corra por
+primera vez: no hay evidencia contra v2, hay ausencia de la prueba. (La
+aceptación §12.1 "v2 carga" vive en el harness TS, no en Binsai.)
 
 - **§1 — La perturbación es un impulso de evento, no una inclinación de λ.**
   Las variables observadas publican `Perturbed` al cruzar una frontera de
   zona (familias level y pace); los drives suscriptos reciben el impulso
-  `ι·ψ(t−t_k)` con `ψ(s)=e^(−s/τ_u)` sobre el canal de aceleración `u`. La
-  velocidad carga la memoria del golpe — para eso existe el segundo orden.
-  Magnitudes por severidad `ι₁/ι₂/ι₃` (0.02/0.06/0.18), asimetría `ζ=0.6`
-  para cruces de mejora. `Drive.apply_impulse`, `Drive.impulses`.
-- **§2 — Presión normalizada y conjuntiva.** Toda fuente en `[0,1]`:
-  `level = min(1,|d|/|L−x*|)`, `pace` = máx. de variables observadas
-  calibradas, `autonomous = min(1,η|v|/v_ref)`. Fuente sin calibrar queda
-  FUERA del máximo y se registra — nunca vale 0. `Drives.pressure` = max
-  (intersección de contratos, nunca el promedio). Saturación en el límite:
-  presión 1, evento `DriveSaturated`, `saturation_time` acumulado como
-  variable observada de derecho propio. Condición inicial `x(t₀)=x*` por
-  defecto (`Drive(value=None)`).
+  `ι·ψ(t−t_k)` con `ψ(s)=e^(−s/τ_u)` sobre el canal de aceleración `u`.
+  Magnitudes por severidad `ι₁/ι₂/ι₃` (0.02/0.06/0.18), asimetría `ζ=0.6`.
+  `Drive.apply_impulse`, `Drive.impulses`.
+- **§2 — Presión normalizada, fuentes que participan, agregación
+  conjuntiva.** Toda fuente en `[0,1]`; la presión por drive es el máximo
+  sobre sus fuentes CALIBRADAS — no la distancia sola (la noche del 09 las
+  calculaba para el reporte y el agregador de despertar no las leía). Una
+  fuente sin calibrar queda fuera del máximo y se registra — nunca vale 0.
+  `Drives.pressure` = max (intersección de contratos). Saturación en el
+  límite: presión 1, `DriveSaturated`, `saturation_time` acumulado.
+- **§2.5 — Persistencia declarada por drive.** `persist_state` +
+  `state_origin`: nada se hereda implícitamente y nada se reinicia
+  implícitamente. Un drive persistido DEBE llegar con su estado heredado
+  y decir de cuándo viene (error si no); el resto arranca en `x(t₀)=x*`.
 - **§3 — `g` se mide.** `ExpectedEffect {driveId, Δ_exp, byWhen}` declarado
-  ANTES de ejecutar; el bucle verifica en `byWhen`: `g = Δ_obs/Δ_exp`
-  acotado a [−1, 2]. `g ≥ g_ok`: saciación sobre el efecto MEDIDO;
-  `|g| < g_nulo`: impulso ι₂, la activación NO se consume (sin
-  refractario), `ActivationFailed`; `g < 0`: impulso ι₃, resultado
-  `harmful`, la acción queda inhabilitada para la misma falla en la
-  ventana. Libro de intentos en `agent.attempts`.
-- **§4 — TTD (tiempo a muerte por negligencia).** Proyección lineal sobre
-  los últimos `N` ticks del log: `TTD_i = margen/pendiente`, `TTD_sistema
-  = min`. `Drive.time_to_death()`, `Drives.time_to_death()`. La carga
-  alostática Λ cuenta lo ya regulado; TTD cuenta lo que queda.
+  ANTES de ejecutar; `g = Δ_obs/Δ_exp` acotado [−1,2] en `byWhen`.
+  `g ≥ g_ok`: saciación sobre el efecto MEDIDO; `|g| < g_nulo`: impulso ι₂,
+  activación NO consumida, `ActivationFailed`; `g < 0`: impulso ι₃,
+  `harmful`, inhabilitada para la misma falla en la ventana.
+  `agent.attempts` como libro de intentos.
+- **§4 — TTD.** Proyección lineal sobre los últimos `N` ticks del log:
+  `Drive.time_to_death()`, `Drives.time_to_death()` = min.
 - **§5 — La tasa respeta el horizonte.** `E[espera] = 1/h ≤ θ·TTD` →
   `h = min(h_max, max(h_base, 1/(θ·TTD)))`; refractario
-  `min(ref_max, max(ref_min, β·TTD))`. `h_max` default subió a 60/h — la
-  noche del 09 con `h_max=12/h` no podía despertar antes de 5 min.
+  `min(ref_max, max(ref_min, β·TTD))`. `h_max` default 60/h.
 - **§7 — Guardas.** `binsai.guards`: señal ausente ≠ desacuerdo
-  (`GuardSkippedUncalibrated`, nunca bloquea); distinción
-  correctiva/destructiva en `ActionSpec.risk`; rechazo = activación no
-  consumida + `ActionRejected`. **Contrato sobrevive a la compactación**:
-  `binsai.contract.ViabilityContract` (bloque verbatim + hash +
-  `agent.verify_contract_block` con `ContractVerified`/`ContractReinjected`).
-- **§8 — Trazas.** Cada sorteo de activación es `ActivationDraw` (presión
-  por drive y fuente, TTD, h, p_tick, resultado); `ExpectedEffect`,
-  `GMeasured`, `ActivationFailed`, `ActionRejected` — la cadena causal de
-  una falla se reconstruye desde el log, sin leer prosa de ningún agente.
-- **§12 — Aceptación.** 17 tests en `tests/test_epa_v2_1.py`, uno por cada
-  ítem de la spec.
+  (`GuardSignalUncalibrated` — `guard.signal_uncalibrated` en la spec —,
+  nunca bloquea); rechazo real con señales vivas sí bloquea y traza
+  `GuardRejected`/`ActionRejected` (la noche del 09 fue un desacuerdo real:
+  lo que falló fue §7.2, no §7.1). `ActionSpec.risk` correctiva/destructiva.
+  **Contrato sobrevive a la compactación**: `binsai.contract.ViabilityContract`
+  (bloque verbatim + hash + `agent.verify_contract_block` con
+  `ContractVerified`/`ContractReinjected`).
+- **§8 — Trazas que no mienten.** `ActivationDraw` registra presión por
+  drive y fuente, **drive y fuente dominantes**, TTD, h, `Δt`, `p_tick`, el
+  número sorteado y el resultado — cada campo se recomputa a mano desde el
+  contrato (el log de la noche del 09 guardaba un delta de pacing bajo el
+  nombre `probability`). `ExpectedEffect`/`GMeasured`/`ActivationFailed`
+  completan la cadena causal reconstruible sin prosa.
+- **§12 — Aceptación.** 23 tests en `tests/test_epa_v2_1.py`; la prueba
+  "v2 carga" corresponde al harness TS (multiply-overnight).
 
 ### CORTE DE COMPARABILIDAD
 
 El desvío ya no entra en la presión como `autonomous` (ahora es
-velocidad-only): las series de presión de v2 no son comparables punto a
-punto con las de v2.1. Los eventos `Perturbed`/`DriveSaturated` son nuevos;
-los payloads de `PressureUpdated` no cambian de nombre pero el escalar
-`pressure` sigue otra regla de agregación.
+velocidad-only) y la presión por drive es el máximo sobre fuentes
+calibradas: las series de presión de v2 no son comparables punto a punto
+con las de v2.1. El estado inicial de un drive solo se hereda si el
+contrato lo declara (`persist_state`).
 
 ## EPA v2 (unreleased)
 

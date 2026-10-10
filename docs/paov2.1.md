@@ -7,38 +7,73 @@ está anclado a una observación de esa corrida, no a una intuición.
 
 ## 0. El problema que v2.1 corrige
 
-v2 define la perturbación como un canal de estímulo `u` sobre la aceleración.
-La implementación la colapsó en la deriva basal `λ`. El resultado es un
-sistema que nunca es perturbado: solo cambia de pendiente.
+Punto de partida, verificado el 2026-10-10: **EPA v2 nunca corrió.**
+`updatePersistentDrives` llama a `integrateProaction` con `lambdaRate`,
+`springReach` y `ALLOSTATIC_RECOVERY_PER_HOUR`, pero esa función sigue
+recibiendo `basal / decayPerHour2`, y `driveDynamics.ts` no exporta
+`ALLOSTATIC_RECOVERY_PER_HOUR` ni `SPRING_FATIGUE`. El módulo no carga. El
+proceso que corrió la noche del 2026-10-09 era anterior a esa firma, de modo
+que `integrateProaction` integró ley de Hooke con pared en ±1: primer orden,
+resorte lineal, clipping.
 
-Evidencia de la noche del 2026-10-09, 166 muestras por drive, una por minuto:
+Por lo tanto v2.1 no es la corrección de un defecto observado de v2. Es el
+conjunto de correcciones que entran antes de que v2 corra por primera vez.
+No hay evidencia en contra de v2; hay ausencia de la prueba.
 
-- Cero discontinuidades en 166 muestras. El drive metabólico describe una U
-  suave (0.462 → 0.291 → 1.000); el de servicio una rampa limpia
-  (0.000 → −0.921). No hay un solo impulso en la trayectoria.
-- `rate` (la fuente de presión de ritmo) fue `null` en 166 de 166 muestras,
-  en los dos drives.
-- Las tres fuentes de presión (`level`, `rate`, `autonomous`) tuvieron
-  `status: "uncalibrated"` en 166 de 166 muestras. `dominant: "unknown"` las
-  166 veces.
-- La presión agregada fue 0.465 con el drive metabólico clavado en 1.000 (el
-  límite de viabilidad) y el de servicio en −0.825. Con
-  `h = min(12, 0.25·e^(3.1·p))` eso da una espera esperada de 57 minutos, 72
-  minutos de ciclo contando el refractario de 15. El sistema despertaba una
-  vez por hora con un drive muerto.
-- `level` del drive metabólico alcanzó 1.934, por encima de la escala del
-  límite de viabilidad.
-- El drive metabólico estuvo 28 minutos clavado en 1.000 (saturado: un drive
-  saturado no transporta información).
-- La condición inicial del drive metabólico fue 0.462 en la primera muestra
-  de la noche, con set-point 0.15 y límite 1.
+El bloqueante es unificar esa firma. Nada de lo de abajo se puede validar
+hasta entonces.
+
+### Evidencia de la noche del 2026-10-09
+
+166 muestras por drive, una por minuto, ventana 21:30–09:00 local, proceso
+muerto a las 00:57.
+
+Síntomas que la pared en ±1 explica, y que v2 debería hacer desaparecer por
+sí sola:
+
+- Cero discontinuidades en 166 muestras. El metabólico describe una U suave
+  (0.462 → 0.291 → 1.000); el de servicio una rampa limpia
+  (0.000 → −0.921). No hay canal `u`: no hay nada que pueda producir un
+  impulso.
+- 47 muestras (≈46 min) en ≥ 0.999 con velocidad exactamente 0,
+  `upperHits: 1`, `velocityResets: 1`. Es la pared: al tocar el límite pone
+  en cero la velocidad hacia afuera. Un valor saturado sin velocidad no
+  tiene pendiente, y sin pendiente no hay proyección posible.
+
+Defectos independientes de la pared, que v2.1 sí tiene que corregir:
+
+- `rate` (fuente de presión de ritmo) fue `null` en 166 de 166 muestras, en
+  los dos drives. Las tres fuentes tuvieron `status: "uncalibrated"` y
+  `dominant: "unknown"` las 166 veces. El agregador de despertar no las lee:
+  usa `pressure = max(distancias al set-point)`. Las fuentes existen para el
+  reporte y no participan de la dinámica.
+- `level.signedContribution` del metabólico cerró en 1.997: es la
+  perturbación cruda (satisfacción firmada, ratio de gasto, piso de
+  RAM/disco), sin normalizar por el límite de viabilidad, y se dibuja como
+  si fuera nivel.
+- El registro de la activación no contiene la cantidad que causó la
+  activación. El campo llamado `probability` guardaba 0.393, que es el delta
+  de pacing del ticket (el prompt del judge imprimió `δ=0.39 zone=caution`,
+  consistente con `yellowMax 0.55`), no `p_tick`. La presión real era 0.85
+  (distancia del metabólico), que da `h = 3.49/h` y `p_tick = 0.056` con
+  tick de un minuto. Ninguno de esos tres números está en el log.
 - El manager predijo por escrito el efecto de su acción ("lifting service
   from −0.785 toward 0") y nadie midió si ocurrió.
 - El sistema ya detecta cruces de zona (`amber_exposure`,
   `first_red_excess_at`) pero los calcula para el reporte, no para la
   dinámica.
+- El prompt del manager dice "If the service drive and the pacing zone
+  disagree, that disagreement is why you woke", y `destructiveActionGuard`
+  rechaza el reload precisamente cuando el drive de servicio está ámbar/rojo
+  y el pacing verde/amarillo. El prompt declara que el desacuerdo es la
+  razón de estar despierto; la guarda lo trata como razón para no actuar.
+  Las dos señales estaban calibradas y vivas: era un desacuerdo real, y aun
+  así el arreglo diagnosticado quedó en disco sin cargar.
+- El prompt declara "a circuit breaker ends the activation after three
+  iterations; it is not a budget". Funcionó como presupuesto: terminó la
+  activación con los dos drives en rojo.
 
-Los siete cambios de abajo salen de esa lista.
+Los cambios de abajo salen de esa lista.
 
 ## 1. La perturbación es un impulso de evento, no una inclinación de la deriva
 
@@ -158,22 +193,30 @@ presión_autónoma_i = min(1, η · |v_i| / v_ref)
 donde `d_i = x_i − x*_i`, `L_i` es el límite de viabilidad del lado en que
 está el desvío, y `v_ref` es la velocidad de referencia del drive.
 
-### 2.2 Fuente ausente ≠ fuente en cero
+### 2.2 Las fuentes tienen que participar de la dinámica
 
-Una fuente sin calibrar no vale 0. Vale desconocida, y eso es información
-distinta.
+Hoy `pressure = max(distancias al set-point)`: la presión usa solo la
+distancia, y las tres fuentes (`level`, `rate`, `autonomous`) se calculan, se
+escriben en el reporte con `status: "uncalibrated"` y no entran al agregador.
+Esa es la corrección principal de §2: la presión por drive es el máximo sobre
+sus fuentes calibradas, no sobre la distancia sola.
 
 ```
 presión_i = max sobre las fuentes CALIBRADAS de i
 ```
 
-Si una fuente está sin calibrar, queda fuera del máximo y se registra el
-hecho. Nunca entra como 0.
+Una fuente sin calibrar no vale 0. Vale desconocida: queda fuera del máximo y
+se registra el hecho. Nunca entra como 0, porque un 0 que significa "no sé"
+es indistinguible de un 0 que significa "sin presión".
 
-El bug de la noche del 09: la componente de tiempo valía `0.000` por estar
-sin calibrar, y al promediarse con las otras dos bajaba la presión alrededor
-de un tercio. Con `memoryError = 0.125`, `tokenError = 1.000`,
-`timeError = 0.000`, la media da 0.375 — y la presión observada fue 0.393.
+Nota sobre `timeError`: en la noche del 09 valió `0.000` por diseño, no por
+falta de calibración. Sale de `twoSidedError`, cuyo undershoot no cuenta
+hasta que el ticket supera el máximo entre 45 minutos y el 25 % de su cuota
+(≈2.9 h con un solo ticket). Eso es correcto para lo que mide — consumo del
+ticket contra su presupuesto de triage — y no es la presión de ritmo. La
+presión de ritmo compara la ventana restante contra lo que queda por
+entregar, y hoy no existe. Son dos cantidades distintas y hacen falta las
+dos.
 
 ### 2.3 Agregación entre drives: conjuntiva, no promedio
 
@@ -184,9 +227,10 @@ drives. Morirse por una variable es morirse. Por lo tanto:
 presión_sistema = max_i presión_i
 ```
 
-o, si se quiere suavidad, una t-norma estricta. Nunca el promedio. Promediar
-un drive muerto con uno sano da tibieza, y la tibieza de la noche del 09 fue
-0.465 con el metabólico en el límite.
+o, si se quiere suavidad, una t-norma estricta. Nunca el promedio. El código
+actual ya usa máximo sobre distancias, así que esta regla está satisfecha en
+el nivel de drives y hay que preservarla cuando §2.2 agregue las fuentes:
+máximo sobre fuentes dentro de cada drive, máximo sobre drives.
 
 ### 2.4 Saturación
 
@@ -202,13 +246,22 @@ Un drive clavado en el límite no transporta información. Cuando
 La noche del 09 tuvo 28 minutos de saturación metabólica indistinguibles
 entre sí.
 
-### 2.5 Condición inicial
+### 2.5 Persistencia de estado: declarada por drive
 
-El estado inicial de cada drive al abrir la ventana se declara en el
-contrato de viabilidad, no se hereda. Una ventana que abre con el metabólico
-en 0.462 sobre un límite de 1 arranca con la mitad del margen gastado antes
-de hacer nada. Por defecto `x_i(t₀) = x*_i`, y cualquier otro valor tiene que
-estar escrito y justificado en el contrato.
+La noche del 09 abrió con el metabólico en 0.462, velocidad −0.229 y
+`stateOrigin: "persisted"` — trayectoria arrastrada, ya moviéndose hacia su
+set-point. El de servicio sí se reinicia, y solo dentro de los primeros 15
+minutos.
+
+Esa asimetría no es un error: es defendible y hay que declararla. La RAM es
+la RAM y el disco es el disco — el estado metabólico persiste porque el
+sustrato persiste. El de servicio se reinicia porque una noche nueva tiene
+un compromiso nuevo.
+
+Regla: el contrato de viabilidad declara, por drive, si su estado persiste
+entre ventanas y por qué. Nada se hereda implícitamente y nada se reinicia
+implícitamente. Si persiste, el prompt dice de cuándo viene el estado y con
+qué velocidad entró.
 
 ## 3. La señal de calidad `g` se mide
 
@@ -388,19 +441,19 @@ El punto 7 no es decorativo: ver §7.3.
 ### 7.1 Señal ausente no es desacuerdo
 
 Una guarda que bloquea ante contradicción entre señales no puede dispararse
-si una de las señales está sin calibrar. Una señal ausente no contradice:
-falta.
-
-Esto es lo que mató la noche del 09. `destructiveActionGuard` bloqueó
-`reload_controller` con `signals_contradict` porque el drive de servicio
-estaba en rojo (−0.825, señal real) y el pacing estaba en verde/amarillo — y
-el pacing estaba ahí porque `rate` era `null` y la fuente estaba sin
-calibrar. El arreglo correcto, ya escrito en disco por el agente, quedó sin
-cargar.
+si una de las señales está sin calibrar o vacía. Una señal ausente no
+contradice: falta.
 
 Regla: si alguna señal del predicado de la guarda está sin calibrar, la
-guarda no bloquea y registra `guard_skipped_uncalibrated` con el nombre de
-la señal.
+guarda no bloquea y registra `guard.signal_uncalibrated` con el nombre de la
+señal.
+
+Nota de alcance: esta regla es correcta pero no fue la causa de la noche del
+09. Ahí `destructiveActionGuard` rechazó `reload_controller` con las dos
+señales calibradas y vivas — pacing en amarillo porque la fase se había
+pasado de su presupuesto, y distancia del drive de servicio en 0.82, ya
+pasado 0.8. `rate` null no entra a ese predicado. Era un desacuerdo real. Lo
+que falló es §7.2.
 
 ### 7.2 Una guarda no puede dejar un arreglo diagnosticado sin aplicar
 
@@ -410,6 +463,18 @@ registro, puede requerir confirmación, no puede quedar bloqueada mientras la
 ventana se muere. Si una guarda rechaza una correctiva, el rechazo sube la
 presión en lugar de consumir la activación, y el motivo entra al prompt del
 ciclo siguiente.
+
+Esto es lo que mató la noche del 09, y hay una contradicción explícita entre
+dos piezas del sistema que lo hace visible: el prompt del manager dice "If
+the service drive and the pacing zone disagree, that disagreement is why you
+woke", y la guarda rechaza el reload exactamente en esa condición. El
+desacuerdo no puede ser a la vez la razón de estar despierto y la razón para
+no poder actuar. Si la guarda tiene que existir, el prompt no puede prometer
+lo contrario.
+
+Caso aparte, y legítimo: rechazar porque hay un turno de staff inmutable en
+vuelo. Eso no es un desacuerdo de señales, es que la acción cancelaría
+trabajo en curso. Ese rechazo se mantiene.
 
 ### 7.3 El contrato sobrevive a la compactación
 
@@ -454,9 +519,17 @@ cambio de estado. Como mínimo:
 - cada tope de tiempo alcanzado, con el módulo y el valor del tope;
 - cada vez que un camino de excepción reutiliza un artefacto previo;
 - cada acción rechazada, con el motivo;
-- cada sorteo de activación: presión por drive y por fuente, `TTD`, `h`,
-  `p_tick`, el sorteo y el resultado;
+- cada sorteo de activación: presión por drive y por fuente, **de qué drive
+  y qué fuente salió el máximo**, `TTD`, `h`, `Δt`, `p_tick`, el número
+  sorteado y el resultado;
 - cada `ExpectedEffect` emitido y cada `g` medido.
+
+Los nombres de los campos tienen que corresponder a lo que guardan. En la
+noche del 09 el campo `probability` del registro de activación contenía el
+delta de pacing del ticket (0.393), no `p_tick`; la presión real era 0.85 y
+el `p_tick` real 0.056, y ninguno de los dos quedó registrado. Un log cuyos
+nombres mienten es peor que no tener log: produce diagnósticos equivocados
+con aire de rigor. Cada cantidad se guarda con su nombre y su unidad.
 
 La cadena causal de la noche del 09 tiene siete pasos y ninguno fue un evento
 en el log: se reconstruyó porque el agente la narró en prosa dentro de un
@@ -520,40 +593,56 @@ viabilidad, no en el código.
 
 ## 12. Pruebas de aceptación
 
-1. **La perturbación se ve.** Forzar un cruce verde→amarillo en una variable
+1. **v2 carga.** `updatePersistentDrives` e `integrateProaction` comparten
+   una sola firma; `driveDynamics.ts` exporta `ALLOSTATIC_RECOVERY_PER_HOUR`
+   y `SPRING_FATIGUE`; el módulo carga. Una trayectoria de prueba muestra
+   resorte magnético y fatiga, no ley de Hooke con pared: ningún drive
+   registra `upperHits` con `velocityResets` como forma normal de llegar al
+   límite. Esta prueba es anterior a todas las demás.
+2. **La perturbación se ve.** Forzar un cruce verde→amarillo en una variable
    observada y verificar que la trayectoria del drive presenta una
    discontinuidad en la aceleración, y que `v` sigue alejándose del set-point
    después de que el impulso decayó. Una noche sin discontinuidades en 166
    muestras falla esta prueba.
-2. **Fuente ausente no vale cero.** Poner una fuente de presión en
-   `uncalibrated` y verificar que queda fuera del máximo y que se registra,
-   en lugar de entrar como 0.
-3. **Agregación conjuntiva.** Con un drive en el límite de viabilidad y otro
+3. **Las fuentes entran a la presión, y la ausente no vale cero.** Verificar
+   que la presión por drive es el máximo sobre sus fuentes calibradas y no
+   la distancia sola. Poner una fuente en `uncalibrated` y verificar que
+   queda fuera del máximo y que se registra, en lugar de entrar como 0.
+4. **Agregación conjuntiva.** Con un drive en el límite de viabilidad y otro
    en el set-point, la presión del sistema es 1, no 0.5.
-4. **Normalización.** Ninguna fuente de presión devuelve un valor fuera de
+5. **Normalización.** Ninguna fuente de presión devuelve un valor fuera de
    `[0, 1]` en ninguna muestra de una ventana completa.
-5. **`g` nulo no sacia y no consume.** Ejecutar una acción con `Δ_exp`
+6. **`g` nulo no sacia y no consume.** Ejecutar una acción con `Δ_exp`
    declarado que no produce efecto; verificar que no se aplica saciación,
    que la activación no se cuenta como consumida, que se emite impulso `ι₂` y
    que la presión sube.
-6. **`TTD` en el prompt.** Dado un drive con pendiente hacia su límite, el
+7. **`TTD` en el prompt.** Dado un drive con pendiente hacia su límite, el
    prompt de la activación siguiente contiene el `TTD` del drive y del
    sistema, y el `TTD` coincide con el cálculo de §4 sobre las muestras del
    log.
-7. **La tasa respeta el horizonte.** Con `TTD = 12 min` y `θ = 0.2`, la
-   espera esperada es ≤ 2.4 minutos.
-8. **La guarda no bloquea con una señal ausente.** Reproducir el caso de la
-   noche del 09: drive de servicio en rojo, fuente de ritmo sin calibrar,
-   acción correctiva propuesta. La acción se ejecuta y se registra
-   `guard_skipped_uncalibrated`.
-9. **El contrato sobrevive.** Forzar una compactación y verificar que el
-   bloque del contrato está verbatim en la activación siguiente, y que la
-   verificación de integridad queda registrada.
-10. **Condición inicial del contrato.** Abrir una ventana y verificar que el
-    estado inicial de cada drive es el declarado en el contrato, y que
-    cualquier valor distinto del set-point está justificado por escrito.
-11. **Saturación registrada.** Llevar un drive al límite y verificar que se
+8. **La guarda no bloquea con una señal ausente, ni deja un arreglo
+   diagnosticado en disco.** Dos casos. (a) Señal del predicado sin
+   calibrar: la acción se ejecuta y se registra `guard.signal_uncalibrated`.
+   (b) Desacuerdo real entre dos señales vivas, con una acción correctiva
+   justificada por causa raíz: la acción se ejecuta, queda el incidente, y el
+   prompt del manager no contiene ninguna frase que prometa que ese
+   desacuerdo habilita una acción que la guarda va a rechazar.
+9. **8b. El log no miente.** Para una activación cualquiera, las cantidades
+   que el evento de sorteo registra bajo `presión`, `h`, `p_tick` y `sorteo`
+   reproducen exactamente la decisión cuando se recomputan a mano desde el
+   contrato. Ningún campo guarda una cantidad distinta de la que nombra.
+10. **El contrato sobrevive.** Forzar una compactación y verificar que el
+    bloque del contrato está verbatim en la activación siguiente, y que la
+    verificación de integridad queda registrada.
+11. **Persistencia declarada.** Abrir una ventana y verificar que cada drive
+    arranca según lo que el contrato declara para él —persistido o
+    reiniciado— y que si persiste, el prompt dice de cuándo viene el estado
+    y con qué velocidad entró.
+12. **Saturación registrada.** Llevar un drive al límite y verificar que se
     emite `drive_saturated` y que el tiempo acumulado en saturación aparece
     como variable observada.
-12. **Trazas.** Reconstruir la cadena causal de una falla usando solo los
+13. **11b. El circuit breaker no es un freno.** Agotar las tres iteraciones
+    sin que baje el desvío y verificar que la activación queda como fallida,
+    que la presión sube y que el refractario no corre.
+14. **Trazas.** Reconstruir la cadena causal de una falla usando solo los
     eventos del log, sin leer ningún campo de texto libre de un agente.

@@ -1,12 +1,13 @@
 """EPA v2.1 (docs/paov2.1.md) — acceptance tests, one per §12 item.
 
-Each test is anchored to the spec section it accepts. The 2026-10-09 night
-had: zero discontinuities in 166 samples, rate null 166/166, three
-uncalibrated sources, aggregate pressure 0.465 with a drive pinned at the
-wall, level 1.934, 28 min of saturation, an inherited initial condition,
-a manager whose predicted effect nobody measured, zone crossings computed
-for the report but not the dynamics, a guard that read absence as
-agreement, and a causal chain of seven steps with zero first-class events.
+Each test is anchored to the spec section it accepts. §12.1 ("v2 carga")
+targets the TS harness signature (updatePersistentDrives/integrateProaction)
+and lives in multiply-overnight; the rest are here. The 2026-10-09 night:
+first-order Hooke's law with a ±1 wall (EPA v2 never ran), rate null
+166/166, sources computed for the report but not read by the wake
+aggregator, an activation log whose "probability" field stored a pacing
+delta, a guard that parked a diagnosed fix on a REAL disagreement, and a
+causal chain of seven steps with zero first-class events.
 """
 import math
 
@@ -15,7 +16,7 @@ import pytest
 from binsai import (
     BinsaiAgent, Drive, Drives, ExpectedEffect, Guard, ObservedVariable,
     ViabilityContract, G_MEASURED, ACTIVATION_FAILED, EXPECTED_EFFECT,
-    PERTURBED, DRIVE_SATURATED, GUARD_SKIPPED_UNCAL, CONTRACT_REINJECTED,
+    PERTURBED, DRIVE_SATURATED, GUARD_SIGNAL_UNCAL, CONTRACT_REINJECTED,
     CONTRACT_VERIFIED,
 )
 
@@ -91,7 +92,7 @@ class TestPerturbationIsAnImpulse:
 
 
 class TestPressureNormalizationAndAggregation:
-    """§12.2, §12.3, §12.4."""
+    """§12.3, §12.4, §12.5."""
 
     def test_uncalibrated_source_excluded_and_registered(self):
         drive = make_drive(value=0.40, lambda_rate=0.0, basal_direction=None,
@@ -104,6 +105,30 @@ class TestPressureNormalizationAndAggregation:
         # missing source counting as zero
         assert pc["pressure"] == pytest.approx(pc["level"], rel=1e-9)
         assert pc["pressure"] == pytest.approx(0.10 / 0.50, rel=1e-9)
+
+    def test_sources_enter_pressure_not_distance_alone(self):
+        """§12.3 — the drive's pressure is the max over its calibrated
+        sources. With the drive AT the set-point (distance pressure 0) and
+        a wired sensor whose pace is in the red, the pressure is the pace
+        source, not the distance."""
+        var = ObservedVariable(
+            name="spend_usd", kind="budget", limit=10.0, set_point=0.0,
+            unit="USD", window=10.0, window_start=0.0,
+            pressure_fn="linear", pacing_mode="ratio",
+        )
+        drive = make_drive(value=0.50, lambda_rate=0.0, basal_direction=None,
+                           kappa=0.0)   # at set-point, frozen
+        drive.observed = [var]
+        var.observe(0.0, 0.0)           # spend 0 at window open
+        # burst: spent 9 of 10 with the window barely open → r_obs ≫ r_sust
+        var.observe(0.5, 9.0)
+        # aggregate WITHOUT a drive update: the crossing's perturbation
+        # impulse is a different channel (§1) and must not muddy §2.
+        pc = drive.pressure_components()
+        assert pc["level"] == 0.0               # distance alone says calm
+        assert pc["pace"] is not None
+        assert pc["pressure"] == pytest.approx(min(1.0, pc["pace"]), rel=1e-9)
+        assert pc["pressure"] > 0.0             # the source entered the max
 
     def test_conjunctive_aggregation(self):
         """A dead drive + a healthy one → system pressure 1, not 0.5."""
@@ -231,7 +256,9 @@ class TestTTDProjection:
 
 
 class TestGuards:
-    """§12.8 — the guard does not block with an absent signal."""
+    """§12.8 — (a) the guard does not block with an absent signal;
+    (b) a real disagreement between live signals keeps the incident but a
+    corrective action justified by root cause still executes."""
 
     def test_uncalibrated_signal_skips_not_blocks(self):
         # service red (calibrated), pace absent (no observed vars)
@@ -247,10 +274,40 @@ class TestGuards:
                                 risk="corrective")])
         agent.activate()
         skipped = []
-        agent.on("GuardSkippedUncalibrated", lambda p: skipped.append(p))
+        agent.on("GuardSignalUncalibrated", lambda p: skipped.append(p))
         verdict = agent.guard_check("corrective", t=1)
         assert verdict is None, "absent signal must not block"
         assert skipped and "service.pace" in skipped[-1]["uncalibrated"]
+
+    def test_real_disagreement_blocks_and_is_traced(self):
+        """§12.8b — both signals calibrated and alive: the guard blocks and
+        the rejection is first-class (the prompt side of the acceptance is
+        the harness's, paov2.1 §7.2)."""
+        # pace source calibrated: wire a sensor with a pace signal
+        var = ObservedVariable(
+            name="spend_usd", kind="budget", limit=10.0, set_point=0.0,
+            window=10.0, window_start=0.0, pressure_fn="linear",
+            pacing_mode="ratio")
+        red = make_drive(name="service", value=0.02)
+        red.observed = [var]
+        var.observe(0.0, 0.0)
+        var.observe(0.5, 9.0)          # pacing through the roof (red)
+        assert red.pressure_components()["pace"] is not None
+
+        agent = BinsaiAgent(name="A", drives=Drives([red]), dry_run_llm=True,
+                            guards=[Guard(
+                                "contradiction_guard",
+                                lambda s: ("signals_contradict"
+                                           if s["service.level"] > 0.5
+                                           and s["service.pace"] > 0.5
+                                           else None),
+                                risk="corrective")])
+        agent.activate()
+        rejected = []
+        agent.on("ActionRejected", lambda p: rejected.append(p))
+        verdict = agent.guard_check("corrective", t=1)
+        assert verdict is not None and verdict.reason == "signals_contradict"
+        assert rejected
 
 
 class TestContractSurvives:
@@ -275,16 +332,97 @@ class TestContractSurvives:
         assert [k for k, _ in events] == ["reinjected", "verified"]
 
 
-class TestInitialConditionAndSaturation:
-    """§12.10, §12.11."""
+class TestPersistenceDeclared:
+    """§12.11 — persistence is declared per drive; nothing is inherited or
+    reset implicitly."""
 
-    def test_initial_condition_is_the_set_point(self):
-        d = make_drive()                    # value=None → x(t₀) = x*
-        assert d.value == d.set_point
+    def test_reset_is_the_declared_default(self):
+        d = make_drive()                    # value=None, persist_state=None
+        assert d.persist_state is not True
+        assert d.value == d.set_point       # reset: x(t₀) = x*
 
-    def test_explicit_initial_condition_is_kept(self):
-        d = make_drive(value=0.462)
-        assert d.value == 0.462            # declared, hence justified
+    def test_persisted_state_must_be_declared(self):
+        # persisted drive without inherited state → the contract is invalid
+        with pytest.raises(ValueError, match="persist_state"):
+            make_drive(persist_state=True)
+
+    def test_persisted_state_carries_value_and_velocity(self):
+        d = make_drive(value=0.462, velocity=-0.229, persist_state=True,
+                       state_origin="persisted from 2026-10-09 21:30")
+        assert d.value == 0.462
+        assert d.velocity == -0.229
+        assert "2026-10-09" in d.state_origin
+
+    def test_explicit_value_without_persistence_is_a_declared_initial_state(self):
+        d = make_drive(value=0.462)         # declared, hence justified
+        assert d.value == 0.462
+
+
+class TestCircuitBreakerIsNotABrake:
+    """§12.13 (11b) — exhausting the attempts without the deviation dropping
+    leaves the activation failed, the pressure up, and the refractory off."""
+
+    def test_null_g_failed_activation_raises_pressure(self):
+        d = make_drive(name="metabolic", value=0.30, lambda_rate=0.0,
+                       basal_direction=None, kappa=0.0, damping=0.0)
+        agent = BinsaiAgent(name="A", drives=Drives([d]), dry_run_llm=True)
+        agent.activate()
+        d.update(tick=0)
+        p_before = d.pressure
+        agent.declare_expected_effect("metabolic", 0.10, by_when=1.0,
+                                      action="respond_fast", fault="f1")
+        d.update(tick=1)
+        agent.tick(t=1)                     # verify → null → ι₂ away impulse
+        assert agent.attempts[-1]["result"] == "null"
+        assert agent._refractory_until == 0.0   # activation NOT consumed
+        # the ι₂ impulse keeps pushing the drive away: pressure rises
+        for t in range(2, 8):
+            d.update(tick=t)
+        assert d.pressure > p_before
+
+
+class TestLogDoesNotLie:
+    """§12.9 (8b) — the draw event's fields recompute exactly from the
+    contract: pressure, h, p_tick and the drawn number each mean what they
+    name."""
+
+    def test_draw_fields_recompute_from_contract(self):
+        import random as _random
+        from binsai.fuzzy import activation_hazard, activation_probability
+
+        d = make_drive(name="metabolic", value=0.30, lambda_rate=0.0,
+                       basal_direction=None, kappa=0.0)
+        d.update(tick=0)
+        agent = BinsaiAgent(name="A", drives=Drives([d]), dry_run_llm=True,
+                            rng=_random.Random(7))
+        agent.activate()
+        draws = []
+        agent.on("ActivationDraw", lambda p: draws.append(p))
+        agent.tick(t=1)
+
+        ev = draws[-1]
+        # recompute by hand from the contract
+        comps = d.pressure_components()
+        p_expected = comps["pressure"]
+        h_expected = activation_hazard(p_expected, has_demand=False,
+                                       pending_labels=0)
+        ttd = d.time_to_death()             # frozen → None
+        dt = d.dt
+        assert ev["dt"] == dt
+        assert ev["pressure"] == pytest.approx(p_expected, rel=1e-6)
+        assert ev["ttd"] is None if ttd is None else True
+        assert ev["h"] == pytest.approx(h_expected, rel=1e-6)
+        p_tick_expected = activation_probability(h_expected, dt)
+        assert ev["p_tick"] == pytest.approx(p_tick_expected, rel=1e-6)
+        # the drawn number decides, and the result matches it
+        assert ev["acted"] == (ev["draw"] < ev["p_tick"])
+        # dominant source recorded
+        assert ev["dominant_drive"] == "metabolic"
+        assert ev["dominant_source"] == "level"
+
+
+class TestSaturation:
+    """§12.12 — pinned at the wall: DriveSaturated + accumulated duration."""
 
     def test_saturation_emits_and_accumulates(self):
         d = make_drive(value=0.50, lambda_rate=0.0, basal_direction=None,

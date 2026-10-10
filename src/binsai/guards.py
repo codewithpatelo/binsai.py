@@ -10,12 +10,19 @@ as agreement.
 v2.1 rules implemented here:
 
 1. **Absent signal is not disagreement.** If any signal of the guard's
-   predicate is uncalibrated (None), the guard does NOT block and records
-   `guard_skipped_uncalibrated` with the signal names.
+   predicate is uncalibrated (None) or empty, the guard does NOT block and
+   records `guard.signal_uncalibrated` with the signal names.
+
+   Scope note (paov2.1 §7.1): this rule is correct but was NOT the cause of
+   the 2026-10-09 night — there both signals were calibrated and alive and
+   the guard rejected on a real disagreement. What failed that night is
+   rule 2.
 2. **A guard cannot park a diagnosed fix.** Corrective actions may require
    logging, may require confirmation — they cannot stay blocked while the
    window dies. A rejected corrective raises pressure instead of consuming
-   the activation, and the reason enters the next cycle.
+   the activation, and the reason enters the next cycle. A legitimate,
+   distinct rejection is an immutable staff turn in flight — that is not a
+   signal disagreement, it is cancelling work in progress, and it stays.
 """
 
 from __future__ import annotations
@@ -88,7 +95,7 @@ def evaluate_guards(guards: Sequence[Guard], risk: str,
             continue
         verdict = g.evaluate(signals)
         if verdict.skipped:
-            emit("GuardSkippedUncalibrated", {
+            emit("GuardSignalUncalibrated", {
                 "guard":        g.name,
                 "risk":         risk,
                 "uncalibrated": verdict.uncalibrated,

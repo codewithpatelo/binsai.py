@@ -147,11 +147,17 @@ class Drive(EventEmitter):
     observed:       list  = field(default_factory=list)  # list[ObservedVariable]
     history_limit:  int   = 0     # max ticks retained in .history.
 
-    # ── EPA v2.1 (docs/paov2.1.md) — perturbation impulses, TTD ──
+    # ── EPA v2.1 (docs/paov2.1.md) — perturbation impulses, TTD, persistence ──
     impulse_iota:   tuple[float, float, float] = (0.02, 0.06, 0.18)  # ι₁ ι₂ ι₃ by crossing severity
     impulse_zeta:   float = 0.6    # ζ — improvement satiates less than worsening perturbs
     impulse_tau:    float = 2.0    # τ_u — decay kernel width, in ticks
     ttd_window:     int   = 30     # N — moving window (ticks) for the TTD slope
+    persist_state:  Optional[bool] = None   # v2.1 §2.5 — does state carry between
+    #                                     windows? Declared per drive, never implicit:
+    #                                     True → the inherited (value, velocity) MUST be
+    #                                     passed explicitly with state_origin saying
+    #                                     when it comes from; False/None → reset x(t₀)=x*
+    state_origin:   str   = ""     # e.g. "persisted from 2026-10-09 21:30, v0=−0.229"
     # Default 0 = retain everything — measurement integrity first: any
     # structure that discards data must say so. Set an explicit limit when
     # memory matters; when it acts, `history_dropped` counts the discarded
@@ -171,9 +177,27 @@ class Drive(EventEmitter):
 
     def __post_init__(self) -> None:
         self._init_bus()
-        # v2.1 §2.5 — initial condition is the contract's, not inherited:
-        # x(t₀) = x* unless explicitly declared and justified.
+        # v2.1 §2.5 — persistence is DECLARED per drive, never implicit.
+        # Nothing is inherited implicitly and nothing is reset implicitly:
+        # a persisted drive must arrive with its inherited state and say
+        # where it comes from; anything else starts at the set-point.
         self.set_point = float(self.set_point)
+        if self.persist_state is True:
+            if self.value is None:
+                raise ValueError(
+                    f"Drive '{self.name}' declares persist_state=True but no "
+                    "inherited value — the contract must declare the state "
+                    "it carries between windows (and state_origin must say "
+                    "when it comes from)."
+                )
+            if not self.state_origin:
+                import warnings
+                warnings.warn(
+                    f"Drive '{self.name}' persists state without a "
+                    "state_origin — the prompt cannot say where it came "
+                    "from or with what velocity it entered.",
+                    stacklevel=2,
+                )
         if self.value is None:
             self.value = self.set_point
         self.value     = float(self.value)

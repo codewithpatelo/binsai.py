@@ -542,10 +542,24 @@ class BinsaiAgent(EventEmitter):
         acted = draw < p_tick
         # v2.1 §8 — every activation draw is a first-class event with the
         # full input state, so a night is reconstructible from the log alone.
+        # Field names mean what they store (the 09 log stored a pacing delta
+        # under "probability"): pressure, h, p_tick and the drawn number are
+        # each recomputable from the contract. The dominant drive/source are
+        # recorded so the causal quantity behind the wake is in the log.
+        comps_map = {d.name: d.pressure_components() for d in self.drives}
+        dominant_drive, dominant_source, dominant_p = None, None, -1.0
+        for name, comps in comps_map.items():
+            for src in ("level", "pace", "autonomous"):
+                v = comps.get(src)
+                if v is not None and v > dominant_p:
+                    dominant_drive, dominant_source, dominant_p = name, src, v
         self.emit(ACTIVATION_DRAW, {
             "agent":          self.name,
             "tick":           t,
+            "dt":             dt,
             "pressure":       round(system_pressure, 4),
+            "dominant_drive": dominant_drive,
+            "dominant_source": dominant_source,
             "ttd":            round(ttd, 3) if ttd is not None else None,
             "h":              round(h, 4),
             "p_tick":         round(p_tick, 6),
@@ -553,10 +567,10 @@ class BinsaiAgent(EventEmitter):
             "acted":          acted,
             "refractory_until": round(self._refractory_until, 3),
             "components": {
-                d.name: {k: (v if not isinstance(v, (int, float))
-                             else round(v, 4))
-                         for k, v in d.pressure_components().items()}
-                for d in self.drives
+                name: {k: (v if not isinstance(v, (int, float))
+                           else round(v, 4))
+                       for k, v in comps.items()}
+                for name, comps in comps_map.items()
             },
         })
         if not acted:
@@ -1050,7 +1064,9 @@ class BinsaiAgent(EventEmitter):
             signals[f"{d.name}.level"]      = comps["level"]
             signals[f"{d.name}.pace"]       = comps["pace"]
             signals[f"{d.name}.autonomous"] = comps["autonomous"]
-            signals[f"{d.name}.pressure"]   = d.pressure
+            # NOTE: the aggregate `pressure` is deliberately NOT a guard
+            # signal — before the first update it is None and would make
+            # every guard skip as "uncalibrated". Guards judge sources.
         verdict = evaluate_guards(self.guards, risk, signals, self.emit)
         if verdict is not None:
             self.emit(ACTION_REJECTED, {
