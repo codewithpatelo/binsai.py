@@ -39,11 +39,12 @@ websockets = {version = "^15.0.1", optional = true}
 # Analysis / plotting (optional — install with binsai[analysis])
 matplotlib = {version = "^3.7.0", optional = true}
 pandas = {version = "^2.0.0", optional = true}
+pillow = {version = "^10.0.0", optional = true}
 
 [tool.poetry.extras]
 web = ["fastapi", "uvicorn", "websockets"]
-analysis = ["matplotlib", "pandas"]
-all = ["fastapi", "uvicorn", "websockets", "matplotlib", "pandas"]
+analysis = ["matplotlib", "pandas", "pillow"]
+all = ["fastapi", "uvicorn", "websockets", "matplotlib", "pandas", "pillow"]
 
 [tool.poetry.scripts]
 binsai = "binsai.cli:main"
