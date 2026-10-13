@@ -28,6 +28,10 @@ from .sleep import ConsolidationWorker, WakeGuard, SleepConfig
 from .action_registry import ActionSpec, ActionSet
 from .llm import DeepSeekBackend, DryRunBackend, get_backend, LLMTelemetry, ModelConfig
 from .report import SimulationLog
+from .calibration import (
+    Perturbation, PerturbationChannel, PerturbationSpec, ShapeRatios, Calibration,
+    calibrate, calibrate_perturbation, basal_time_to_death, grip, resting_point,
+)
 from .viz import timeline_svg, timeline_html, trajectory_artifact, TrajectoryArtifact
 from .viability_space import (
     ViabilityRecording, record_viability_run, render_viability_space,
@@ -35,6 +39,10 @@ from .viability_space import (
 from .world.world import World, WorldConfig, AgentConfig, AgentFrame, WorldFrame
 
 __all__ = [
+    # Calibration (EPA v2.1)
+    "Perturbation", "PerturbationChannel", "PerturbationSpec", "ShapeRatios",
+    "Calibration", "calibrate", "calibrate_perturbation", "basal_time_to_death",
+    "grip", "resting_point",
     # Core
     "BinsaiAgent",
     "Position",
