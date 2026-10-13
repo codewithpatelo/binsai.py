@@ -47,6 +47,7 @@ as fatigue is present.
 
 from __future__ import annotations
 
+import copy as copy_module
 import math
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
@@ -305,6 +306,17 @@ class Calibration:
     def sound(self) -> bool:
         return self.holds and self.kills and self.overshoot_over_reach < 1.0
 
+    def apply_to(self, drive: Drive) -> Drive:
+        """Write this calibration onto a drive. The whole point of calibrating."""
+        drive.kappa = self.kappa
+        drive.spring_reach = self.w
+        drive.lambda_rate = self.lambda0
+        drive.damping = self.damping
+        drive.spring_fatigue = self.fatigue
+        drive.allostatic_recovery = self.allostatic_recovery
+        drive.spring = "magnetic-2nd"
+        return drive
+
     def as_contract(self) -> dict:
         return {
             "kappa": round(self.kappa, 6), "springReach": round(self.w, 6),
@@ -320,6 +332,21 @@ class Calibration:
                 "ttdBasal": None if self.ttd_basal is None else round(self.ttd_basal, 3),
             },
         }
+
+
+def _clone_for_counterfactual(drive: Drive, *, fatigue: float) -> Drive:
+    """A copy of THIS drive, at its set-point, with u = 0 — the v2.1 §4 integration.
+
+    Nothing is invented: every field comes off the drive the caller handed in.
+    """
+    import copy
+    d = copy.copy(drive)
+    d._history, d._events, d._impulses, d._open = [], [], [], []
+    d._sustained, d._allostatic, d._settled = {}, 0.0, 0.0
+    d.value, d.velocity = drive.set_point, 0.0
+    d.spring_fatigue = fatigue
+    d._init_bus()
+    return d
 
 
 def _drive_for(c: dict, direction: float, zones: Optional[Sequence[ZoneSpec]], dt: float) -> Drive:
@@ -358,6 +385,80 @@ def basal_time_to_death(
         if not (lo < d.value < hi):
             return t * dt
     return None
+
+
+def calibrate_drive(
+    drive: Drive, *, mortality: float, horizon: Optional[float] = None,
+    shape: Optional[ShapeRatios] = None, apply: bool = True,
+    fatigue_bounds: tuple[float, float] = (1e-5, 50.0), iterations: int = 60,
+) -> Calibration:
+    """Calibrate a drive that already exists. This is the entry point.
+
+    The margin, the set-point, the sign of the drift, the clock and the drift
+    shape are read off `drive`. Phase 2 integrates a copy of that same drive
+    with u = 0 — no parallel world. With `apply=True` the result is written
+    back, so `drive.calibrate(mortality=0.8)` leaves the drive calibrated.
+    """
+    shape = shape or ShapeRatios()
+    H = horizon if horizon is not None else drive.horizon
+    lo_v, hi_v = drive.viability
+    margin = min(abs(drive.set_point - lo_v), abs(hi_v - drive.set_point))
+    if not (margin > 0):
+        raise ValueError(
+            f"drive '{drive.name}' has no room between its set-point and its viability "
+            "limits, so there is nothing to calibrate. Set `viability` strictly inside "
+            "the drive's [0,1] coordinate first.")
+    if not (0.0 < mortality < 1.0):
+        raise ValueError(
+            f"mortality must be a fraction of the horizon in (0, 1), got {mortality}: "
+            "at 1.0 or above the drive outlives its own horizon and A4 cannot hold.")
+
+    direction = 1.0 if drive.lambda_rate >= 0 else -1.0
+    d_eq = shape.rest_fraction * margin
+    period = shape.period_fraction * H
+    omega = 2.0 * math.pi / period
+    kappa = omega ** 2
+    w = shape.reach_fraction * margin
+    lambda0 = kappa * d_eq * math.exp(-d_eq / w)
+    damping = 2.0 * shape.damping_ratio * omega
+    rho = shape.load_recovery / H
+
+    probe = copy_module.copy(drive)
+    probe.kappa, probe.spring_reach, probe.damping = kappa, w, damping
+    probe.lambda_rate = math.copysign(lambda0, direction)
+    probe.allostatic_recovery = rho
+    probe.spring = "magnetic-2nd"
+
+    def ttd(f: float) -> Optional[float]:
+        d = _clone_for_counterfactual(probe, fatigue=f)
+        steps = int(round(3.0 * H / max(d.dt, 1e-12)))
+        for t in range(1, steps + 1):
+            d.update(tick=t)
+            if not (lo_v < d.value < hi_v):
+                return t * d.dt
+        return None
+
+    target = mortality * H
+    lo, hi = fatigue_bounds
+    for _ in range(iterations):
+        mid = 0.5 * (lo + hi)
+        t = ttd(mid)
+        lo, hi = (mid, hi) if (t is None or t > target) else (lo, mid)
+    fatigue = 0.5 * (lo + hi)
+    measured = ttd(fatigue)
+
+    G = grip(kappa, w)
+    zeta = damping / (2.0 * omega)
+    overshoot = d_eq * (1.0 + math.exp(-math.pi * zeta / math.sqrt(max(1e-9, 1 - zeta ** 2))))
+    cal = Calibration(
+        kappa=kappa, w=w, lambda0=math.copysign(lambda0, direction), damping=damping,
+        fatigue=fatigue, allostatic_recovery=rho, set_point=drive.set_point, margin=margin,
+        grip=G, grip_ratio=G / lambda0, rest_point=d_eq, omega=omega, period=period,
+        overshoot_over_reach=overshoot / w, ttd_basal=measured,
+        holds=G / lambda0 > 1.0, kills=measured is not None and measured < H)
+    if apply:
+        cal.apply_to(drive)
+    return cal
 
 
 def calibrate(

@@ -46,7 +46,7 @@ from typing import Callable, Optional
 
 from .events import (
     EventEmitter, ZONE_CHANGED, PRESSURE_UPDATED, SATIATED, COUPLED,
-    VIABILITY_BREACHED, TENSION_RELEASED, PERTURBED, DRIVE_SATURATED,
+    VIABILITY_BREACHED, TENSION_RELEASED, PERTURBED, DRIVE_SATURATED, G_MEASURED,
 )
 
 
@@ -56,6 +56,67 @@ class ZoneSpec:
     name:   str
     center: float
     width:  float = 0.12
+
+
+@dataclass
+class PerturbationEnvelope:
+    """ADSR — what a perturbation event carries (v2.1 §1).
+
+    ADS belongs to the world, R belongs to the agent. The world never closes
+    an event: only a corrective action does, with its measured grade g.
+
+    Magnitudes (`iota`) are fractions of the viability margin and arrive from
+    the contract; the timings are fractions of the drive's regulation horizon,
+    so one envelope describes a disk filling over a night and a queue backing
+    up over a second.
+    """
+    rise:    float = 0.010          # time to the peak, fraction of the horizon
+    decay:   float = 0.0015         # peak -> sustain time constant, idem
+    release: float = 0.036          # fade-out once an action closed it, idem
+    sustain_fraction: float = 0.25  # sustained level, as a fraction of the peak
+
+
+@dataclass
+class Perturbation:
+    """One open event on a drive. It presses until an action closes it.
+
+    `g` is the accumulated release grade (0 = untouched, 1 = closed): the
+    measured quality of the corrective action, Δ_observed / Δ_expected, never
+    a declaration. An action with g = 0 ran and satiated nothing, and the
+    event keeps pressing at full strength — that is the satiation problem.
+    """
+    severity:  int
+    direction: float                # the world's semantics, not the drive's side
+    born_at:   int
+    magnitude: float                # peak displacement, in drive units
+    envelope:  PerturbationEnvelope
+    horizon:   float
+    source:    str = ""
+    g:         float = 0.0
+    closed_at: Optional[int] = None
+
+    def level(self, tick: int) -> float:
+        """Signed displacement this event contributes at `tick`."""
+        import math
+        s = tick - self.born_at
+        if s < 0:
+            return 0.0
+        e, H = self.envelope, max(self.horizon, 1e-9)
+        rise, decay = max(e.rise * H, 1e-9), max(e.decay * H, 1e-9)
+        a = self.magnitude
+        su = a * e.sustain_fraction
+        v = a * (s / rise) if s < rise else su + (a - su) * math.exp(-(s - rise) / decay)
+        if self.closed_at is not None:
+            v *= max(0.0, 1.0 - (tick - self.closed_at) / max(e.release * H, 1e-9))
+        return self.direction * v * (1.0 - self.g)
+
+    @property
+    def open(self) -> bool:
+        return self.closed_at is None
+
+    def expired(self, tick: int) -> bool:
+        return (self.closed_at is not None
+                and tick - self.closed_at > self.envelope.release * max(self.horizon, 1e-9))
 
 
 class Stratum(Enum):
@@ -151,6 +212,9 @@ class Drive(EventEmitter):
     impulse_iota:   tuple[float, float, float] = (0.02, 0.06, 0.18)  # ι₁ ι₂ ι₃ by crossing severity
     impulse_zeta:   float = 0.6    # ζ — improvement satiates less than worsening perturbs
     impulse_tau:    float = 2.0    # τ_u — decay kernel width, in ticks
+    envelope:       "PerturbationEnvelope" = field(default_factory=lambda: PerturbationEnvelope())
+    horizon:        float = 690.0  # regulation horizon, in ticks: what the envelope's
+    #                                fractions are read against. Not a clock — a scale.
     persist_state:  Optional[bool] = None   # v2.1 §2.5 — does state carry between
     #                                     windows? Declared per drive, never implicit:
     #                                     True → the inherited (value, velocity) MUST be
@@ -171,6 +235,8 @@ class Drive(EventEmitter):
     _allostatic:    float = field(default=0.0, repr=False)  # Λ — allostatic load
     _sustained:     dict[str, float] = field(default_factory=dict, repr=False)  # u stimuli
     _impulses:      list[tuple[int, float]] = field(default_factory=list, repr=False)  # (tick, a_imp)
+    _open:          list["Perturbation"] = field(default_factory=list, repr=False)
+    _settled:       float = field(default=0.0, repr=False)  # envelope level already applied
     _saturated_at:  Optional[int] = field(default=None, repr=False)  # tick of entry into saturation
     _saturation_accum: float = field(default=0.0, repr=False)  # Σ ticks spent pinned at the wall
 
@@ -758,6 +824,9 @@ class Drive(EventEmitter):
         agent's dot-syntax re-emission (e.g. "zone.enter" → drive.hunger.<zone>).
         """
         old_zone = self._last_zone
+        # The envelope presses on the level before the dynamics run, so the
+        # spring sees the displacement this pulse and pulls against it.
+        self._settle_perturbations(tick)
         if self.spring == "magnetic-2nd":
             self._update_second_order(tick, coupling)
         else:
@@ -905,18 +974,136 @@ class Drive(EventEmitter):
     def _on_perturbation(self, payload: dict) -> None:
         """Receive a Perturbed event from an observed variable (v2.1 §1.5).
 
-        The variable publishes; the drive subscribes. The impulse enters the
-        acceleration channel with its magnitude and direction. The variable
-        speaks in time units (payload "t"); the drive converts to its own
-        tick grid.
+        The variable publishes; the drive subscribes and **opens an event**.
+        It does not inject a scalar into the acceleration channel: a sustained
+        term in `a` is integrated twice and accumulates without bound, so an
+        unattended run collapses in a fraction of its horizon however the
+        drive is tuned. The envelope presses on the level instead, where it is
+        bounded and the magnetic spring can fight it.
+
+        The variable speaks in time units (payload "t"); the drive converts to
+        its own tick grid.
         """
         t_var = float(payload.get("t", payload.get("tick", 0.0)))
         tick = int(round(t_var / self.dt)) if self.dt else int(t_var)
-        self.apply_impulse(
-            tick,
-            abs(float(payload.get("impulse", 0.0))),
-            toward=(payload.get("direction") == "toward"),
-        )
+        severity = int(payload.get("severity") or 0)
+        if severity < 1:
+            return
+        toward = payload.get("direction") == "toward"
+        margin = self._viability_margin()
+        iota = self.impulse_iota[min(2, severity - 1)]
+        magnitude = iota * margin * (self.impulse_zeta if toward else 1.0)
+        if toward:
+            # The world eased off. That relieves, but it does not close an
+            # event: only an action does. It opens its own, mirrored.
+            self.open_perturbation(tick, severity, -self._away_sign(),
+                                   magnitude=magnitude,
+                                   source=str(payload.get("variable", "")))
+        else:
+            self.open_perturbation(tick, severity, self._away_sign(),
+                                   magnitude=magnitude,
+                                   source=str(payload.get("variable", "")))
+
+    def _viability_margin(self) -> float:
+        lo, hi = self.viability
+        return min(abs(self.set_point - lo), abs(hi - self.set_point)) or 1.0
+
+    def _away_sign(self) -> float:
+        d = self.value - self.set_point
+        return -1.0 if d < 0 else 1.0
+
+    # ── Typed perturbation and correction (v2.1 §1) ──────────────────────────
+
+    def open_perturbation(self, tick: int, severity: int, direction: float,
+                          magnitude: Optional[float] = None,
+                          source: str = "") -> "Perturbation":
+        """Open an ADSR event on this drive. The world's direction, not the drive's side."""
+        import math
+        if magnitude is None:
+            magnitude = self.impulse_iota[min(2, max(1, severity) - 1)] * self._viability_margin()
+        p = Perturbation(severity=int(severity), direction=math.copysign(1.0, direction),
+                         born_at=int(tick), magnitude=float(magnitude),
+                         envelope=self.envelope, horizon=self.horizon, source=source)
+        self._open.append(p)
+        self.record_event(int(tick), "shock" if severity >= 3 else "pert")
+        self.emit(PERTURBED, {
+            "drive": self.name, "tick": int(tick), "severity": int(severity),
+            "direction": "away" if p.direction == self._away_sign() else "toward",
+            "magnitude": round(p.magnitude, 6), "source": source,
+            "open_events": self.open_perturbations,
+        })
+        return p
+
+    def correct(self, tick: int, g: float, source: str = "") -> int:
+        """A corrective action of **measured** quality g. Returns events it closed.
+
+        g = Δ_observed / Δ_expected, from :meth:`impulse` or from the action's
+        declared ExpectedEffect. g = 0 closes nothing: the action ran and
+        satiated nothing, and every event keeps pressing.
+        """
+        g = max(0.0, min(1.0, float(g)))
+        closed = 0
+        for p in self._open:
+            if p.open:
+                p.g = min(1.0, p.g + g * (1.0 - p.g))
+                if p.g >= 0.98:
+                    p.closed_at = int(tick)
+                    closed += 1
+        if closed:
+            self.record_event(int(tick), "sat")
+        self.emit(G_MEASURED, {
+            "drive": self.name, "tick": int(tick), "g": round(g, 4),
+            "closed": closed, "still_open": self.open_perturbations, "source": source,
+        })
+        return closed
+
+    @property
+    def open_perturbations(self) -> int:
+        """Events nobody has closed — the agent's outstanding debt."""
+        return sum(1 for p in self._open if p.open)
+
+    @property
+    def perturbation_load(self) -> float:
+        """Net displacement the open envelopes are pressing with, right now."""
+        return self._settled
+
+    def _settle_perturbations(self, tick: int) -> None:
+        """Write this pulse's net envelope displacement onto the level channel."""
+        self._open = [p for p in self._open if not p.expired(tick)]
+        total = sum(p.level(tick) for p in self._open)
+        delta = total - self._settled
+        self._settled = total
+        if delta:
+            self.value = max(0.0, min(1.0, self.value + delta))
+
+    # ── Calibration (EPA v2.1) ───────────────────────────────────────────────
+
+    def calibrate(self, *, mortality: float, horizon: Optional[float] = None,
+                  shape: Optional["ShapeRatios"] = None, apply: bool = True,
+                  iterations: int = 60) -> "Calibration":
+        """Tune **this** drive so basal negligence kills it at `mortality`.
+
+        Everything else is read off the drive as it stands: its margin, its
+        set-point, the sign of its drift, its clock. Nothing is invented and no
+        parallel world is simulated — phase 2 integrates a copy of this very
+        drive with u = 0, which is the v2.1 §4 counterfactual.
+
+        Args:
+            mortality: fraction of the horizon at which the drive dies with
+                nobody acting. Below 1.0 or A4 does not hold.
+            horizon:   defaults to the drive's own `horizon`.
+            apply:     write the result back onto this drive (default). False
+                       returns the calibration without touching it.
+
+        Two acceptance tests must hold together, and `Calibration.sound` says
+        whether they did:
+
+            R0 = kappa*w/(e*|lambda0|) > 1   the spring holds -> regulating is possible
+            TTD_basal < horizon              fatigue eats it  -> negligence kills (A4)
+        """
+        from .calibration import calibrate_drive
+        return calibrate_drive(self, mortality=mortality, horizon=horizon,
+                               shape=shape, apply=apply, iterations=iterations)
 
     def _resolve_satiation(self, name: str):
         import math
@@ -1006,6 +1193,21 @@ class Drives:
         if drives:
             for d in drives:
                 self._drives[d.name] = d
+
+    def calibrate(self, *, mortality: float | dict[str, float],
+                  horizon: Optional[float] = None, apply: bool = True,
+                  **kw) -> dict[str, "Calibration"]:
+        """Calibrate every drive in the collection, in place.
+
+        `mortality` is either one fraction for all of them or a per-name dict.
+        Push and pull drives rarely want the same date: the one that decays
+        usually has to die earlier than the one that replenishes.
+        """
+        out: dict[str, "Calibration"] = {}
+        for name, drive in self._drives.items():
+            m = mortality[name] if isinstance(mortality, dict) else mortality
+            out[name] = drive.calibrate(mortality=m, horizon=horizon, apply=apply, **kw)
+        return out
 
     @property
     def pressure(self) -> float:

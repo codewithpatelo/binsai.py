@@ -8,7 +8,9 @@ __author__  = "Patricio Gerpe"
 __email__   = "pj.patriciojulian@gmail.com"
 
 from .agent  import BinsaiAgent, Position
-from .drives import Drives, Drive, Stratum, ZoneSpec
+from .drives import (
+    Drives, Drive, Stratum, ZoneSpec, Perturbation, PerturbationEnvelope,
+)
 from .fuzzy  import compute_action_distribution, zone_memberships
 from .lifecycle import FIPAState, LifecycleManager
 from .actions import ActionKind, RegulatoryBudgets, ExpectedEffect
@@ -29,8 +31,8 @@ from .action_registry import ActionSpec, ActionSet
 from .llm import DeepSeekBackend, DryRunBackend, get_backend, LLMTelemetry, ModelConfig
 from .report import SimulationLog
 from .calibration import (
-    Perturbation, PerturbationChannel, PerturbationSpec, ShapeRatios, Calibration,
-    calibrate, calibrate_perturbation, basal_time_to_death, grip, resting_point,
+    ShapeRatios, Calibration, calibrate_drive, calibrate_perturbation,
+    basal_time_to_death, grip, resting_point,
 )
 from .viz import timeline_svg, timeline_html, trajectory_artifact, TrajectoryArtifact
 from .viability_space import (
@@ -40,8 +42,8 @@ from .world.world import World, WorldConfig, AgentConfig, AgentFrame, WorldFrame
 
 __all__ = [
     # Calibration (EPA v2.1)
-    "Perturbation", "PerturbationChannel", "PerturbationSpec", "ShapeRatios",
-    "Calibration", "calibrate", "calibrate_perturbation", "basal_time_to_death",
+    "Perturbation", "PerturbationEnvelope", "ShapeRatios", "Calibration",
+    "calibrate_drive", "calibrate_perturbation", "basal_time_to_death",
     "grip", "resting_point",
     # Core
     "BinsaiAgent",

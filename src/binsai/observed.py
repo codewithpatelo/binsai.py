@@ -546,7 +546,8 @@ class ObservedVariable(EventEmitter):
             "from":      last,
             "to":        zone,
             "direction": direction,
-            "impulse":   round(impulse, 6),
+            "severity":  sev,               # the drive sizes the envelope from this
+            "impulse":   round(impulse, 6),  # legacy scalar, kept for readers
             "driveId":   None,              # filled by each subscribed drive
         })
 

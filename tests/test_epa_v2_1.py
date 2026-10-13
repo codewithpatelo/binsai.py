@@ -38,40 +38,62 @@ class TestPerturbationIsAnImpulse:
     """§12.1 — the perturbation is visible: a zone crossing hits the
     acceleration channel and v keeps moving away after the impulse decayed."""
 
-    def test_zone_crossing_injects_decaying_impulse(self):
+    def test_zone_crossing_opens_an_event_on_the_level_channel(self):
+        """v2.1 §1 — a crossing opens an ADSR event, it does not poke `u`.
+
+        A sustained term in the acceleration channel is integrated twice and
+        accumulates without bound, so an unattended run collapses in a
+        fraction of its horizon however the drive is tuned. The envelope
+        presses on the level, where the magnetic spring can fight it.
+        """
         var = ObservedVariable(
             name="ram_free_gb", kind="floor", limit=(0.0, 10.0),
             set_point=10.0, pressure_fn="linear", window=None,
         )
-        # frozen dynamics (κ=0, λ=0): the impulse is the only thing acting
-        drive = make_drive(value=0.50, lambda_rate=0.0, basal_direction=None,
-                           kappa=0.0, damping=0.0)
+        drive = make_drive(value=0.50)
         drive.observed = [var]
-        var.observe(0.0, 10.0)          # anchor: green, p=0
-        drive.update(tick=0)            # drive subscribes to Perturbed
-        v_before = drive.velocity       # 0
+        var.observe(0.0, 10.0)          # green anchor
+        drive.update(tick=0)
+        assert drive.open_perturbations == 0
 
-        # free RAM falls 10→4: p = (sp−x)/(sp−lo) = 0.6 → high. The
-        # crossing green→high is ι₂ away from the set-point.
-        var.observe(1.0, 4.0)
+        var.observe(1.0, 1.0)           # green -> red: the world hits
         drive.update(tick=1)
-        assert drive.impulses, "no impulse arrived at the drive"
-        tk, a_imp = drive.impulses[-1]
-        assert tk == 1
-        assert abs(abs(a_imp) - 0.06) < 1e-9
-        v_after = drive.velocity
-        assert v_after != v_before      # acceleration discontinuity: v charged
+        assert drive.open_perturbations == 1
+        assert not drive.impulses, "the envelope must not enter the acceleration channel"
+        assert drive.perturbation_load == 0.0, "the attack starts at zero and climbs"
 
-        # the impulse decays (τ_u=2) but v persists — the memory of the hit
-        # outlives the hit. At tick 4 the residual impulse contributes only
-        # 0.06·e^(−1.5) ≈ 0.013, yet v ≈ 0.132 > ι₂ itself: the accumulated
-        # velocity exceeds the blow. (Later the drive hits the wall — the
-        # inelastic clip then zeroes v, which is the correct death.)
-        drive.update(tick=2)
-        drive.update(tick=3)
-        drive.update(tick=4)
-        assert drive.velocity == pytest.approx(0.131853, rel=1e-4)
-        assert drive.velocity > 0.06
+        # A: it ramps to the peak over `rise`, then D falls to the sustain
+        loads = []
+        for t in range(2, 40):
+            drive.update(tick=t)
+            loads.append(abs(drive.perturbation_load))
+        assert loads[0] < loads[4], "the attack must climb"
+        assert max(loads) > loads[-1], "and then decay off the peak"
+
+        # S: it keeps pressing — the world never closes an event
+        for t in range(40, 300):
+            drive.update(tick=t)
+        assert drive.open_perturbations == 1
+        assert abs(drive.perturbation_load) > 0.0
+
+    def test_only_a_measured_correction_closes_an_event(self):
+        """ADS is the world's, R is the agent's, and the grade is measured g."""
+        var = ObservedVariable(
+            name="ram_free_gb", kind="floor", limit=(0.0, 10.0),
+            set_point=10.0, pressure_fn="linear", window=None,
+        )
+        drive = make_drive(value=0.50)
+        drive.observed = [var]
+        var.observe(0.0, 10.0)
+        drive.update(tick=0)
+        var.observe(1.0, 1.0)
+        drive.update(tick=1)
+
+        assert drive.correct(tick=2, g=0.0) == 0, "an action that satiates nothing closes nothing"
+        assert drive.open_perturbations == 1
+
+        assert drive.correct(tick=3, g=1.0) == 1
+        assert drive.open_perturbations == 0
 
     def test_toward_crossing_is_weaker(self):
         """ζ asymmetry: improving satiates less than worsening perturbs."""
@@ -85,10 +107,10 @@ class TestPerturbationIsAnImpulse:
         drive.update(tick=0)
         var.observe(1.0, 10.0)          # back to green: toward
         drive.update(tick=1)
-        assert drive.impulses
-        _, a_imp = drive.impulses[-1]
-        # ι₃·ζ = 0.108 — half the worsening hit of the same severity
-        assert abs(abs(a_imp) - 0.18 * 0.6) < 1e-9
+        assert drive.open_perturbations == 1
+        easing = drive._open[-1]
+        margin = drive._viability_margin()
+        assert easing.magnitude == pytest.approx(0.18 * margin * 0.6, rel=1e-9)
 
 
 class TestPressureNormalizationAndAggregation:

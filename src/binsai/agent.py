@@ -230,9 +230,33 @@ class BinsaiAgent(EventEmitter):
         # Current tick (set at start of tick() so budget window calls can reference it)
         self._current_tick: int = 0
 
+    # ── Calibration ─────────────────────────────────────────────────────────────
+
+    def calibrate(self, *, mortality: float | dict[str, float] = 0.8,
+                  horizon: float | None = None, apply: bool = True, **kw) -> dict:
+        """Calibrate this agent's drives so basal negligence kills on schedule.
+
+        The one call an operator needs::
+
+            report = agent.calibrate(mortality=0.8)
+
+        `mortality` is the fraction of each drive's regulation horizon at which
+        it dies with nobody acting — the decision that makes A4 real. Pass a
+        dict to give each drive its own date: a drive that decays usually has
+        to die earlier than one that replenishes.
+
+        Everything else is read off the drives as they stand. Each returned
+        `Calibration` carries `sound`, which is true only when both acceptance
+        tests held: the spring holds (R0 > 1) so regulating is possible, and
+        fatigue eats it inside the horizon so negligence kills.
+        """
+        return self.drives.calibrate(mortality=mortality, horizon=horizon,
+                                     apply=apply, **kw)
+
     # ── Properties ──────────────────────────────────────────────────────────────
 
     @property
+
     def status(self) -> str:
         return self._lifecycle.state.value
 
