@@ -63,24 +63,44 @@ __all__ = [
 
 @dataclass
 class PerturbationSpec:
-    """Envelope shape, shared by every event of a given severity scale.
+    """Envelope shape. Every field is a fraction — of the margin, or of the horizon.
 
-    Magnitudes are fractions of the viability margin, so a calibration moves
-    between drives and between contracts without rescaling by hand.
+    A spec carries no clock and no ruler. `attack` and `sustain` are fractions
+    of the drive's viability margin; `rise`, `decay` and `release` are
+    fractions of its regulation horizon. The same spec therefore describes a
+    disk filling over a night and a queue backing up over a second.
     """
-    attack:   float = 0.16          # peak displacement, fraction of the margin
-    sustain:  float = 0.04          # held displacement, fraction of the margin
-    t_attack: float = 7.0           # time to the peak, in ticks
-    tau:      float = 1.0           # decay from peak to sustain, in ticks
-    t_release: float = 25.0         # fade-out once an action has closed it
-    zeta:     float = 0.64          # improving satiates less than worsening perturbs
+    attack:  float = 0.16           # peak displacement, fraction of the margin
+    sustain: float = 0.04           # held displacement, fraction of the margin
+    rise:    float = 0.010          # time to the peak, fraction of the horizon
+    decay:   float = 0.0015         # peak -> sustain time constant, idem
+    release: float = 0.036          # fade-out once an action closed it, idem
+    zeta:    float = 0.64           # improving satiates less than worsening perturbs
     severity_scale: tuple[float, float, float] = (0.11, 0.33, 1.0)
+
+    def at(self, horizon: float) -> "_Timed":
+        """Resolve the fractions against a horizon, in whatever clock it uses."""
+        return _Timed(self, max(horizon, 1e-9))
 
     def magnitude(self, severity: int) -> float:
         return self.attack * self.severity_scale[max(0, min(2, severity - 1))]
 
     def sustain_level(self, severity: int) -> float:
         return self.sustain * self.severity_scale[max(0, min(2, severity - 1))]
+
+
+@dataclass(frozen=True)
+class _Timed:
+    """A spec read against a horizon: fractions become durations."""
+    spec: PerturbationSpec
+    horizon: float
+
+    @property
+    def rise(self) -> float: return max(self.spec.rise * self.horizon, 1e-9)
+    @property
+    def decay(self) -> float: return max(self.spec.decay * self.horizon, 1e-9)
+    @property
+    def release(self) -> float: return max(self.spec.release * self.horizon, 1e-9)
 
 
 @dataclass
@@ -97,6 +117,7 @@ class Perturbation:
     born_at: int
     spec: PerturbationSpec
     margin: float
+    horizon: float = 1.0
     g: float = 0.0
     closed_at: Optional[int] = None
 
@@ -105,15 +126,15 @@ class Perturbation:
         s = tick - self.born_at
         if s < 0:
             return 0.0
+        T = self.spec.at(self.horizon)
         a = self.spec.magnitude(self.severity) * self.margin
         su = self.spec.sustain_level(self.severity) * self.margin
-        if s < self.spec.t_attack:                       # A
-            v = a * (s / max(self.spec.t_attack, 1e-9))
+        if s < T.rise:                                   # A
+            v = a * (s / T.rise)
         else:                                            # D then S
-            v = su + (a - su) * math.exp(-(s - self.spec.t_attack) / max(self.spec.tau, 1e-9))
+            v = su + (a - su) * math.exp(-(s - T.rise) / T.decay)
         if self.closed_at is not None:                   # R
-            fade = 1.0 - (tick - self.closed_at) / max(self.spec.t_release, 1e-9)
-            v *= max(0.0, fade)
+            v *= max(0.0, 1.0 - (tick - self.closed_at) / T.release)
         return self.direction * v * (1.0 - self.g)
 
     def release(self, g: float, tick: int) -> float:
@@ -128,7 +149,8 @@ class Perturbation:
         return self.g
 
     def expired(self, tick: int) -> bool:
-        return self.closed_at is not None and tick - self.closed_at > self.spec.t_release
+        return (self.closed_at is not None
+                and tick - self.closed_at > self.spec.at(self.horizon).release)
 
 
 class PerturbationChannel:
@@ -139,17 +161,20 @@ class PerturbationChannel:
     against it.
     """
 
-    def __init__(self, drive: Drive, spec: PerturbationSpec, margin: float) -> None:
+    def __init__(self, drive: Drive, spec: PerturbationSpec, margin: float,
+                 horizon: float) -> None:
         self.drive = drive
         self.spec = spec
         self.margin = margin
+        self.horizon = horizon
         self.open: list[Perturbation] = []
         self._applied = 0.0
 
     def fire(self, tick: int, severity: int, direction: float) -> Perturbation:
         """Emit an event. `direction` is the world's, not the drive's side."""
         p = Perturbation(severity=severity, direction=math.copysign(1.0, direction),
-                         born_at=tick, spec=self.spec, margin=self.margin)
+                         born_at=tick, spec=self.spec, margin=self.margin,
+                         horizon=self.horizon)
         self.open.append(p)
         self.drive.record_event(tick, "shock" if severity >= 3 else "pert")
         return p
@@ -215,15 +240,27 @@ def resting_point(kappa: float, w: float, lambda0: float) -> Optional[float]:
 
 @dataclass
 class ShapeRatios:
-    """Phase 1 — how the drive regulates. Dimensionless, so it travels.
+    """Phase 1 — how the drive regulates. Every field is dimensionless.
 
-    The defaults are the operator-tuned priors from the 2026-10-13 bench
-    session, not optima: they are a starting point with a known-good shape.
+    Nothing here mentions hours or a night. A drive is specified relative to
+    two scales it carries anyway: its viability `margin` (the length scale)
+    and its regulation `horizon` (the time scale) — how long the thing it
+    regulates is supposed to hold together without outside help. An overnight
+    agent's horizon is its window; a long-running service's is its shift; a
+    control loop's is its settling budget. The calibration is invariant under
+    rescaling either one (see `test_calibration_is_scale_free`).
+
+    The defaults are **one measured prior**, not canon: they come from a human
+    operator tuning a long-horizon coding agent on 2026-10-13 until the five
+    acceptance checks held. They are a documented starting point with a shape
+    known to work, and nothing here claims they are optimal or universal.
+    Other domains should expect different ratios and are expected to say so.
     """
-    rest_fraction:  float = 0.18    # d_eq / margin
-    reach_fraction: float = 1.18    # w / margin   (~6.6 * d_eq)
-    period_fraction: float = 0.13   # T_osc / window — ~7 cycles per window
-    damping_ratio:  float = 0.33    # zeta: rings, but the overshoot stays inside w
+    rest_fraction:   float = 0.18   # d_eq / margin
+    reach_fraction:  float = 1.18   # w / margin   (~6.6 * d_eq)
+    period_fraction: float = 0.13   # T_osc / horizon — ~7 cycles per horizon
+    damping_ratio:   float = 0.33   # zeta: rings, but the overshoot stays inside w
+    load_recovery:   float = 7.0    # rho_Lambda * horizon — load settles within it
 
 
 @dataclass
@@ -246,6 +283,23 @@ class Calibration:
     ttd_basal: Optional[float]      # measured, not predicted
     holds: bool                     # R0 > 1
     kills: bool                     # TTD_basal inside the window  (A4)
+
+    def dimensionless(self, horizon: float) -> dict[str, float]:
+        """The groups that actually define this calibration.
+
+        A calibration is these six numbers; `margin` and `horizon` only say
+        what clock and what ruler they are read against. Two drives with the
+        same groups behave identically after rescaling.
+        """
+        M, T = self.margin, horizon
+        return {
+            "kappa*T^2":    self.kappa * T * T,
+            "c*T":          self.damping * T,
+            "lambda*T^2/M": abs(self.lambda0) * T * T / M,
+            "rho*T":        self.allostatic_recovery * T,
+            "f*M*T":        self.fatigue * M * T,
+            "w/M":          self.w / M,
+        }
 
     @property
     def sound(self) -> bool:
@@ -307,20 +361,27 @@ def basal_time_to_death(
 
 
 def calibrate(
-    *, margin: float, window: float, ttd_basal: float, direction: float = 1.0,
-    set_point: float = 0.0, shape: ShapeRatios = ShapeRatios(),
-    allostatic_recovery: Optional[float] = None, dt: float = 1.0,
-    drift_shape: str = "linear", drift_gamma: float = 1.0,
+    *, margin: float, horizon: float, mortality: float,
+    direction: float = 1.0, set_point: float = 0.0,
+    shape: ShapeRatios = ShapeRatios(), allostatic_recovery: Optional[float] = None,
+    dt: float = 1.0, drift_shape: str = "linear", drift_gamma: float = 1.0,
     fatigue_bounds: tuple[float, float] = (1e-5, 20.0), iterations: int = 60,
 ) -> Calibration:
     """Phase 1 (geometry) then phase 2 (fatigue), for one drive.
 
-    `ttd_basal` is the thing you actually decide: how long the drive survives
-    with nobody acting. It must be inside `window` or A4 does not hold; it
-    should not be so early that there is no time to work.
+    Args:
+        margin:    distance from the set-point to the viability wall.
+        horizon:   the drive's regulation horizon, in the same clock as `dt`.
+        mortality: **the thing you actually decide** — at what fraction of the
+                   horizon basal negligence kills, with nobody acting. Below
+                   1.0 or A4 does not hold; not so small that there is no time
+                   to work. 0.8 means the drive reaches four fifths of its
+                   horizon alone and then dies.
 
-    `allostatic_recovery` defaults to 0.6 per unit of `window`'s clock, which
-    is binsai's 0.01-per-tick prior read in hours.
+    `margin` and `horizon` are scales, not settings: the calibration is
+    invariant under rescaling either, so the same `ShapeRatios` and the same
+    `mortality` describe an overnight window, a trading session and a servo
+    loop. Nothing in here knows what an hour is.
     """
     if not (0.0 < set_point - margin and set_point + margin < 1.0):
         raise ValueError(
@@ -329,10 +390,16 @@ def calibrate(
             "it. Calibrate inside the coordinate (e.g. set_point=0.5, margin<=0.45) and scale "
             "the result: kappa, c and rho are invariant, lambda and w scale with the margin, "
             "f scales with its inverse.")
-    rho = allostatic_recovery if allostatic_recovery is not None else 0.6 * dt
+    if not (0.0 < mortality < 1.0):
+        raise ValueError(
+            f"mortality must be a fraction of the horizon in (0, 1), got {mortality}: "
+            "at 1.0 or above the drive outlives its own horizon and A4 cannot hold.")
+    ttd_basal = mortality * horizon
+    rho = (allostatic_recovery if allostatic_recovery is not None
+           else shape.load_recovery / horizon)
     d_eq = shape.rest_fraction * margin
     w = shape.reach_fraction * margin
-    period = shape.period_fraction * window
+    period = shape.period_fraction * horizon
     omega = 2.0 * math.pi / period
     kappa = omega ** 2
     lambda0 = kappa * d_eq * math.exp(-d_eq / w)
@@ -344,7 +411,7 @@ def calibrate(
         return basal_time_to_death(
             kappa=kappa, w=w, lambda0=lambda0, damping=damping, fatigue=f,
             allostatic_recovery=rho, set_point=set_point, margin=margin,
-            direction=direction, window=window, dt=dt,
+            direction=direction, window=horizon, dt=dt,
             drift_shape=drift_shape, drift_gamma=drift_gamma)
 
     lo, hi = fatigue_bounds
@@ -367,25 +434,55 @@ def calibrate(
         grip=G, grip_ratio=G / lambda0, rest_point=d_eq, omega=omega, period=period,
         overshoot_over_reach=overshoot / w, ttd_basal=measured,
         holds=G / lambda0 > 1.0,
-        kills=measured is not None and measured < window,
+        kills=measured is not None and measured < horizon,
     )
 
 
 def calibrate_perturbation(
-    cal: Calibration, *, window: float, target_ttd: float,
-    arrivals_per_unit: float = 1.5, ticks_per_unit: float = 60.0,
+    cal: Calibration, *, horizon: float, exploratory_budget: float,
+    arrivals_per_horizon: float = 400.0,
     spec: PerturbationSpec = PerturbationSpec(),
     severities: Sequence[int] = (1, 2, 3), dt: float = 1.0, seed: int = 11,
     bounds: tuple[float, float] = (1e-4, 2.0), iterations: int = 36,
 ) -> PerturbationSpec:
-    """Phase 3 — size the envelope so that an unattended night lasts `target_ttd`.
+    """Phase 3 — size the envelope so an unattended run lasts that long.
 
-    That number is the agent's exploratory budget: with nobody closing events,
-    how long before the wall. It buys the room for actions that measure g = 0.
-    The trade is a square root — halving the time needs four times the load —
-    so solve it, do not guess it.
+    Args:
+        exploratory_budget: fraction of the horizon the drive survives while
+            nobody closes any event. It is the room the agent has to act and
+            be wrong: every action that measures g = 0 is spent out of it.
+        arrivals_per_horizon: expected events over one horizon. **Not a
+            calibration choice** — it is a property of the environment, and it
+            must be measured from the observed variables' crossing rate. Only
+            the product of arrivals and magnitude sets the budget, so guessing
+            one of them silently decides the other.
+
+    The trade is a square root: a budget twice as long needs a quarter of the
+    load. Solve it, do not guess it.
+
+    Raises:
+        ValueError: when arrivals are too sparse for the problem to be well
+            posed. The spring absorbs a displacement within its own period, so
+            if events arrive slower than that they are each absorbed before the
+            next one lands and *no* magnitude shortens the budget — the solver
+            would otherwise answer with a hit the size of the whole margin.
+            The governing number is arrivals per oscillation period: below
+            about ten the load cannot accumulate at all. Measure the real
+            crossing rate, or widen the horizon, or soften the spring.
     """
     import random
+
+    per_period = arrivals_per_horizon * cal.period / horizon
+    if per_period < 10.0:
+        raise ValueError(
+            f"{arrivals_per_horizon:g} arrivals per horizon is {per_period:.1f} per "
+            f"oscillation period ({cal.period:g}): the spring absorbs each displacement "
+            "before the next lands, so no magnitude shortens the exploratory budget. "
+            "This is not a solver failure — the problem is not well posed. Measure the "
+            "real crossing rate of the observed variables before sizing the envelope.")
+
+    window = horizon
+    target_ttd = exploratory_budget * horizon
 
     def ttd_unattended(attack: float) -> float:
         s = PerturbationSpec(**{**spec.__dict__, "attack": attack,
@@ -396,12 +493,11 @@ def calibrate_perturbation(
                             rho=cal.allostatic_recovery, set_point=cal.set_point,
                             margin=cal.margin, drift_shape="linear", drift_gamma=1.0),
                        math.copysign(1.0, cal.lambda0), None, dt)
-        ch = PerturbationChannel(d, s, cal.margin)
+        ch = PerturbationChannel(d, s, cal.margin, window)
         lo, hi = cal.set_point - cal.margin, cal.set_point + cal.margin
         steps = int(round(window / dt))
-        # arrivals_per_unit counts events per `ticks_per_unit` ticks (default:
-        # per hour on a one-minute tick). Mixing the two clocks fires ~40x too often.
-        p_tick = 1.0 - math.exp(-arrivals_per_unit * dt / ticks_per_unit)
+        # arrivals_per_horizon is dimensionless: expected events over one horizon.
+        p_tick = 1.0 - math.exp(-arrivals_per_horizon * dt / window)
         for t in range(1, steps + 1):
             if r.random() < p_tick:
                 ch.fire(t, r.choice(list(severities)), math.copysign(1.0, cal.lambda0))

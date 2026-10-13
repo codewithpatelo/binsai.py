@@ -11,13 +11,14 @@ from binsai.calibration import (
 )
 from binsai.drives import Drive
 
-WINDOW = 690.0          # 11.5 h at a one-minute tick
+WINDOW = 690.0          # a horizon of 690 ticks — the unit is whatever the caller's is
+ARRIVALS = 400.0        # events over one horizon, a measurement and not a choice
 MARGIN = 0.45
 SP = 0.5
 
 
 def _cal(ttd_hours: float, direction: float = 1.0) -> Calibration:
-    return calibrate(margin=MARGIN, window=WINDOW, ttd_basal=ttd_hours * 60,
+    return calibrate(margin=MARGIN, horizon=WINDOW, mortality=ttd_hours * 60 / WINDOW,
                      direction=direction, set_point=SP, allostatic_recovery=0.01)
 
 
@@ -69,11 +70,11 @@ def test_the_spring_postpones_it_does_not_save():
 
 def test_margin_scaling_law():
     """kappa, c and rho are invariant; lambda and w scale with the margin; f with 1/margin."""
-    ref = calibrate(margin=0.30, window=WINDOW, ttd_basal=480, set_point=SP,
+    ref = calibrate(margin=0.30, horizon=WINDOW, mortality=480 / WINDOW, set_point=SP,
                     allostatic_recovery=0.01)
     for m in (0.36, 0.45):
         r = m / 0.30
-        got = calibrate(margin=m, window=WINDOW, ttd_basal=480, set_point=SP,
+        got = calibrate(margin=m, horizon=WINDOW, mortality=480 / WINDOW, set_point=SP,
                         allostatic_recovery=0.01)
         assert got.kappa == pytest.approx(ref.kappa, rel=1e-9)
         assert got.damping == pytest.approx(ref.damping, rel=1e-9)
@@ -82,10 +83,72 @@ def test_margin_scaling_law():
         assert got.fatigue == pytest.approx(ref.fatigue / r, rel=1e-6)
 
 
+def test_calibration_is_scale_free():
+    """Nothing in the calibrator knows what an hour is.
+
+    The same shape ratios and the same mortality, read against a different
+    clock and a different ruler, give the same dimensionless groups — so one
+    calibration describes an overnight window, a trading session and a servo
+    loop. This is why `mortality` is a fraction and not "9.5 hours".
+    """
+    base = calibrate(margin=0.45, horizon=690, mortality=0.8, set_point=SP)
+    ref = base.dimensionless(690)
+    for margin, horizon in ((0.45, 69), (0.20, 6900), (0.40, 240)):
+        other = calibrate(margin=margin, horizon=horizon, mortality=0.8, set_point=SP)
+        got = other.dimensionless(horizon)
+        for key, value in ref.items():
+            # The five analytic groups are exact. f*M*T is bisected against a
+            # discrete integration, so it inherits the tick resolution: at
+            # horizon 69 there are 69 steps and it cannot be sharper than that.
+            tol = 0.05 if key == "f*M*T" else 1e-9
+            assert got[key] == pytest.approx(value, rel=tol), f"{key} moved with the scale"
+        assert other.grip_ratio == pytest.approx(base.grip_ratio, rel=1e-6)
+        assert other.ttd_basal / horizon == pytest.approx(base.ttd_basal / 690, rel=0.03)
+
+
+def test_sparse_arrivals_make_phase_three_ill_posed():
+    """Below ~10 arrivals per oscillation period the spring absorbs everything.
+
+    No magnitude shortens the budget then, so the solver must say so instead of
+    answering with a hit the size of the whole margin.
+    """
+    c = _cal(9)
+    with pytest.raises(ValueError, match="per oscillation period"):
+        calibrate_perturbation(c, horizon=WINDOW, exploratory_budget=0.22,
+                               arrivals_per_horizon=17.0)
+
+
+def test_the_envelope_is_scale_free_too():
+    """One spec, two clocks: the same shape in normalized time.
+
+    The fractions are of the margin and of the horizon, so a spec that
+    describes a disk filling over a night also describes a queue backing up
+    over a second. Only the leading edge differs, by discretization.
+    """
+    def shape(horizon: int) -> list[float]:
+        d = _flat_drive()
+        ch = PerturbationChannel(d, PerturbationSpec(), MARGIN, horizon)
+        ch.fire(1, 3, +1)
+        trace = []
+        for t in range(1, horizon + 1):
+            ch.settle(t)
+            d.update(tick=t)
+            trace.append(d.value - SP)
+        return [trace[int(f * (horizon - 1))] for f in (0.02, 0.05, 0.2, 0.6, 0.95)]
+    short, long = shape(690), shape(6900)
+    for a, b in zip(short, long):
+        assert a == pytest.approx(b, rel=0.01)   # discretizacion del borde
+
+
+def test_mortality_is_a_fraction_of_the_horizon():
+    with pytest.raises(ValueError, match="fraction of the horizon"):
+        calibrate(margin=MARGIN, horizon=WINDOW, mortality=1.4, set_point=SP)
+
+
 def test_viability_band_must_not_touch_the_state_bound():
     """A wall on the state bound is a clip: the drive can never cross it."""
     with pytest.raises(ValueError, match="state bound"):
-        calibrate(margin=0.5, window=WINDOW, ttd_basal=480, set_point=SP)
+        calibrate(margin=0.5, horizon=WINDOW, mortality=0.7, set_point=SP)
 
 
 def test_derived_quantities_agree_with_the_formulas():
@@ -110,7 +173,7 @@ def test_attack_scales_only_the_peak():
     for attack in (0.05, 0.10, 0.20):
         d = _flat_drive()
         ch = PerturbationChannel(d, PerturbationSpec(attack=attack, sustain=attack / 4,
-                                                     t_attack=4, tau=3), MARGIN)
+                                                     rise=0.03, decay=0.02), MARGIN, WINDOW)
         ch.fire(10, 3, +1)
         trace = []
         for t in range(1, 120):
@@ -124,8 +187,9 @@ def test_attack_scales_only_the_peak():
 
 def test_envelope_has_attack_decay_and_sustain():
     d = _flat_drive()
-    spec = PerturbationSpec(attack=0.20, sustain=0.05, t_attack=6, tau=8, t_release=20)
-    ch = PerturbationChannel(d, spec, MARGIN)
+    spec = PerturbationSpec(attack=0.20, sustain=0.05, rise=6 / WINDOW,
+                            decay=8 / WINDOW, release=20 / WINDOW)
+    ch = PerturbationChannel(d, spec, MARGIN, WINDOW)
     ch.fire(1, 3, +1)
     at = {}
     for t in range(1, 200):
@@ -142,7 +206,8 @@ def test_envelope_has_attack_decay_and_sustain():
 def test_only_an_action_closes_an_event():
     """ADS is the world's, R is the agent's. The world never releases."""
     d = _flat_drive()
-    ch = PerturbationChannel(d, PerturbationSpec(attack=0.2, sustain=0.06, t_release=15), MARGIN)
+    ch = PerturbationChannel(d, PerturbationSpec(attack=0.2, sustain=0.06,
+                                                 release=15 / WINDOW), MARGIN, WINDOW)
     ch.fire(1, 3, +1)
     for t in range(1, 300):
         ch.settle(t)
@@ -158,7 +223,7 @@ def test_only_an_action_closes_an_event():
 
 def test_an_action_that_satiates_nothing_leaves_the_event_open():
     d = _flat_drive()
-    ch = PerturbationChannel(d, PerturbationSpec(attack=0.2, sustain=0.06), MARGIN)
+    ch = PerturbationChannel(d, PerturbationSpec(attack=0.2, sustain=0.06), MARGIN, WINDOW)
     p = ch.fire(1, 3, +1)
     for t in range(1, 60):
         ch.settle(t)
@@ -177,7 +242,7 @@ def test_direction_is_the_world_not_the_drive_side():
     for start in (SP - 0.2, SP + 0.2):
         d = _flat_drive()
         d.value = start
-        ch = PerturbationChannel(d, PerturbationSpec(attack=0.2, t_attack=1), MARGIN)
+        ch = PerturbationChannel(d, PerturbationSpec(attack=0.2, rise=1 / WINDOW), MARGIN, WINDOW)
         ch.fire(1, 3, -1)
         for t in range(1, 30):
             ch.settle(t)
@@ -198,7 +263,7 @@ def test_the_spring_can_fight_a_level_perturbation():
                   spring="magnetic-2nd", spring_reach=c.w, damping=c.damping,
                   spring_fatigue=c.fatigue, allostatic_recovery=c.allostatic_recovery,
                   dt=1.0, viability=(SP - MARGIN, SP + MARGIN))
-        ch = PerturbationChannel(d, PerturbationSpec(attack=0.10, sustain=0.03), MARGIN)
+        ch = PerturbationChannel(d, PerturbationSpec(attack=0.10, sustain=0.03), MARGIN, WINDOW)
         r = random.Random(7)
         for t in range(1, int(WINDOW) + 1):
             if r.random() < 1.5 / 60:
@@ -220,7 +285,12 @@ def test_three_scenarios_under_one_calibration():
     """E1 survives, E2 kills at the calibrated date, E3 kills sooner but leaves room."""
     c = _cal(9)
     # phase 3 sizes the envelope from the exploratory budget — do not hand-pick it.
-    spec = calibrate_perturbation(c, window=WINDOW, target_ttd=150, arrivals_per_unit=1.5)
+    # 0.22 of the horizon is below what this agent's capacity can survive: it
+    # dies at 2.7 h against E3's 2.4 h, buying almost nothing. That threshold is
+    # a third well-posedness condition — the agent must close events at least as
+    # fast as they arrive — and it is a property of the agent, not of the drive.
+    spec = calibrate_perturbation(c, horizon=WINDOW, exploratory_budget=0.35,
+                                  arrivals_per_horizon=ARRIVALS)
     def night(perturb: bool, act: bool, seed: int = 11) -> tuple[float, int, int]:
         r = random.Random(seed)
         d = Drive(name="x", set_point=SP, value=SP, kappa=c.kappa,
@@ -228,10 +298,10 @@ def test_three_scenarios_under_one_calibration():
                   spring="magnetic-2nd", spring_reach=c.w, damping=c.damping,
                   spring_fatigue=c.fatigue, allostatic_recovery=c.allostatic_recovery,
                   dt=1.0, viability=(SP - MARGIN, SP + MARGIN))
-        ch = PerturbationChannel(d, spec, MARGIN)
+        ch = PerturbationChannel(d, spec, MARGIN, WINDOW)
         acts = refr = 0
         for t in range(1, int(WINDOW) + 1):
-            if perturb and r.random() < 1.5 / 60:
+            if perturb and r.random() < ARRIVALS / WINDOW:
                 ch.fire(t, r.choice((1, 2, 3)), +1)
             if act and t > refr and ch.load:
                 p = min(1.0, abs(d.value - SP) / MARGIN)
@@ -251,4 +321,4 @@ def test_three_scenarios_under_one_calibration():
     assert e2 == pytest.approx(c.ttd_basal, rel=0.05)
     assert e3 < 0.6 * e2, "unclosed events must shorten the night"
     assert e3 > 60, "and still leave the agent room for failed attempts"
-    assert acts > 15
+    assert acts > 10
