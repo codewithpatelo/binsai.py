@@ -236,6 +236,7 @@ class Drive(EventEmitter):
     _sustained:     dict[str, float] = field(default_factory=dict, repr=False)  # u stimuli
     _impulses:      list[tuple[int, float]] = field(default_factory=list, repr=False)  # (tick, a_imp)
     _open:          list["Perturbation"] = field(default_factory=list, repr=False)
+    _seen:          list["Perturbation"] = field(default_factory=list, repr=False)
     _settled:       float = field(default=0.0, repr=False)  # envelope level already applied
     _saturated_at:  Optional[int] = field(default=None, repr=False)  # tick of entry into saturation
     _saturation_accum: float = field(default=0.0, repr=False)  # Σ ticks spent pinned at the wall
@@ -1025,6 +1026,7 @@ class Drive(EventEmitter):
                          born_at=int(tick), magnitude=float(magnitude),
                          envelope=self.envelope, horizon=self.horizon, source=source)
         self._open.append(p)
+        self._seen.append(p)
         self.record_event(int(tick), "shock" if severity >= 3 else "pert")
         self.emit(PERTURBED, {
             "drive": self.name, "tick": int(tick), "severity": int(severity),
@@ -1056,6 +1058,26 @@ class Drive(EventEmitter):
             "closed": closed, "still_open": self.open_perturbations, "source": source,
         })
         return closed
+
+    @property
+    def perturbation_history(self) -> list["Perturbation"]:
+        """Every event this drive has received, open or closed."""
+        return list(self._seen)
+
+    def measured_arrival_rate(self, horizon: Optional[float] = None) -> Optional[float]:
+        """Events per horizon, **measured** from what this drive actually received.
+
+        Returns None when the drive has not run long enough to measure: an
+        arrival rate is an observation about the environment, not a setting,
+        and guessing it silently decides the magnitude of every perturbation.
+        """
+        if not self._seen or not self._history:
+            return None
+        elapsed = (self._history[-1][0] - self._history[0][0]) * self.dt
+        if elapsed <= 0:
+            return None
+        H = horizon if horizon is not None else self.horizon
+        return len(self._seen) * H / elapsed
 
     @property
     def open_perturbations(self) -> int:
@@ -1104,6 +1126,30 @@ class Drive(EventEmitter):
         from .calibration import calibrate_drive
         return calibrate_drive(self, mortality=mortality, horizon=horizon,
                                shape=shape, apply=apply, iterations=iterations)
+
+    def calibrate_perturbation(self, *, exploratory_budget: float,
+                               arrivals_per_horizon: Optional[float] = None,
+                               horizon: Optional[float] = None,
+                               apply: bool = True, **kw) -> tuple[float, float, float]:
+        """Size this drive's impulse magnitudes from the room the agent needs.
+
+        `exploratory_budget` is the fraction of the horizon the drive survives
+        while nobody closes any event — the room an agent has to act and be
+        wrong, since every action that measures g = 0 is spent out of it.
+
+        The arrival rate is **measured** from the events this drive has
+        received unless you pass one. Only the product of arrivals and
+        magnitude sets the budget, so an unmeasured rate silently decides the
+        magnitude. With `apply=True` the result is written to `impulse_iota`.
+
+        Returns the three magnitudes (iota1, iota2, iota3), as fractions of the
+        viability margin.
+        """
+        from .calibration import calibrate_drive_perturbation
+        return calibrate_drive_perturbation(
+            self, exploratory_budget=exploratory_budget,
+            arrivals_per_horizon=arrivals_per_horizon, horizon=horizon,
+            apply=apply, **kw)
 
     def _resolve_satiation(self, name: str):
         import math

@@ -31,7 +31,7 @@ from .action_registry import ActionSpec, ActionSet
 from .llm import DeepSeekBackend, DryRunBackend, get_backend, LLMTelemetry, ModelConfig
 from .report import SimulationLog
 from .calibration import (
-    ShapeRatios, Calibration, calibrate_drive, calibrate_perturbation,
+    ShapeRatios, Calibration, calibrate_drive, calibrate_drive_perturbation,
     basal_time_to_death, grip, resting_point,
 )
 from .viz import timeline_svg, timeline_html, trajectory_artifact, TrajectoryArtifact
@@ -43,7 +43,7 @@ from .world.world import World, WorldConfig, AgentConfig, AgentFrame, WorldFrame
 __all__ = [
     # Calibration (EPA v2.1)
     "Perturbation", "PerturbationEnvelope", "ShapeRatios", "Calibration",
-    "calibrate_drive", "calibrate_perturbation", "basal_time_to_death",
+    "calibrate_drive", "calibrate_drive_perturbation", "basal_time_to_death",
     "grip", "resting_point",
     # Core
     "BinsaiAgent",
