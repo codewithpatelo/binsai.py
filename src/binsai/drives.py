@@ -95,10 +95,22 @@ class Perturbation:
     g:         float = 0.0
     closed_at: Optional[int] = None
 
+    dt: float = 1.0                 # cuánto tiempo del mundo vale un pulso
+
     def level(self, tick: int) -> float:
-        """Signed displacement this event contributes at `tick`."""
+        """Signed displacement this event contributes at `tick`.
+
+        El tiempo se mide con `dt`, como el integrador y como el decaimiento de
+        los impulsos: `horizon` es tiempo del mundo en todos lados. Con `dt = 1`
+        da lo mismo, que es por qué el error era invisible.
+
+        A3 — el release es una fase, no un salto. Una corrección de grado g baja
+        el nivel en una fracción g de lo que había, a lo largo del tiempo de
+        release. Multiplicar por (1 − g) antes del fade hacía desaparecer la
+        envolvente en un pulso con g = 1, y la R del ADSR no existía.
+        """
         import math
-        s = tick - self.born_at
+        s = (tick - self.born_at) * self.dt
         if s < 0:
             return 0.0
         e, H = self.envelope, max(self.horizon, 1e-9)
@@ -106,9 +118,10 @@ class Perturbation:
         a = self.magnitude
         su = a * e.sustain_fraction
         v = a * (s / rise) if s < rise else su + (a - su) * math.exp(-(s - rise) / decay)
-        if self.closed_at is not None:
-            v *= max(0.0, 1.0 - (tick - self.closed_at) / max(e.release * H, 1e-9))
-        return self.direction * v * (1.0 - self.g)
+        if self.closed_at is None:
+            return self.direction * v * (1.0 - self.g)
+        frac = min(1.0, max(0.0, ((tick - self.closed_at) * self.dt) / max(e.release * H, 1e-9)))
+        return self.direction * v * (1.0 - self.g * frac)
 
     @property
     def open(self) -> bool:
@@ -116,7 +129,8 @@ class Perturbation:
 
     def expired(self, tick: int) -> bool:
         return (self.closed_at is not None
-                and tick - self.closed_at > self.envelope.release * max(self.horizon, 1e-9))
+                and (tick - self.closed_at) * self.dt
+                > self.envelope.release * max(self.horizon, 1e-9))
 
 
 class Stratum(Enum):
@@ -237,6 +251,8 @@ class Drive(EventEmitter):
     _impulses:      list[tuple[int, float]] = field(default_factory=list, repr=False)  # (tick, a_imp)
     _open:          list["Perturbation"] = field(default_factory=list, repr=False)
     _seen:          list["Perturbation"] = field(default_factory=list, repr=False)
+    # banda actual por variable observada: distingue la CONDICIÓN del EVENTO
+    _zona_fuente:   dict = field(default_factory=dict, repr=False)
     _settled:       float = field(default=0.0, repr=False)  # envelope level already applied
     _saturated_at:  Optional[int] = field(default=None, repr=False)  # tick of entry into saturation
     _saturation_accum: float = field(default=0.0, repr=False)  # Σ ticks spent pinned at the wall
@@ -988,22 +1004,47 @@ class Drive(EventEmitter):
         t_var = float(payload.get("t", payload.get("tick", 0.0)))
         tick = int(round(t_var / self.dt)) if self.dt else int(t_var)
         severity = int(payload.get("severity") or 0)
+        fuente = str(payload.get("variable", ""))
+        hacia = payload.get("direction") == "toward"
+
+        # La CONDICIÓN es la banda en que está la variable ahora; el EVENTO es
+        # la perturbación. Tres reglas que no se pisan:
+        #   sale de verde         -> abre un evento nuevo
+        #   empeora estando fuera -> escala el abierto, no abre otro
+        #   vuelve a verde        -> nada en la necesidad (A3: el mundo no
+        #                            libera), pero la próxima salida abre uno
+        #                            nuevo, porque es otra perturbación.
+        previa = self._zona_fuente.get(fuente, 0)
+        if hacia:
+            destino = str(payload.get("to", ""))
+            self._zona_fuente[fuente] = 0 if ("equilibrium" in destino or not destino) else severity
+            return
         if severity < 1:
             return
-        toward = payload.get("direction") == "toward"
+        self._zona_fuente[fuente] = max(previa, severity)
+
+        # A3 — el signo lo declara el contrato de la variable, no el lado en
+        # que está la necesidad: una variable que viola por déficit empuja
+        # hacia la pared baja aunque la necesidad esté arriba de su equilibrio.
+        signo = -1.0 if payload.get("hemisphere", "deficit") == "deficit" else +1.0
         margin = self._viability_margin()
-        iota = self.impulse_iota[min(2, severity - 1)]
-        magnitude = iota * margin * (self.impulse_zeta if toward else 1.0)
-        if toward:
-            # The world eased off. That relieves, but it does not close an
-            # event: only an action does. It opens its own, mirrored.
-            self.open_perturbation(tick, severity, -self._away_sign(),
-                                   magnitude=magnitude,
-                                   source=str(payload.get("variable", "")))
+        dp, band = payload.get("dp"), payload.get("band")
+        if dp is not None and dp > 0:
+            # La magnitud es cuánto se movió la presión de la variable, topada
+            # en el ancho de la banda de entrada: un sensor que salta tres
+            # bandas en una muestra emite un evento severo, no un golpe de tres
+            # bandas. Eso sería ruido del sensor entrando como magnitud.
+            magnitude = min(float(dp), float(band or 1.0)) * margin
         else:
-            self.open_perturbation(tick, severity, self._away_sign(),
-                                   magnitude=magnitude,
-                                   source=str(payload.get("variable", "")))
+            magnitude = self.impulse_iota[min(2, severity - 1)] * margin
+
+        abierto = next((p for p in self._open if p.open and p.source == fuente), None)
+        if previa > 0 and abierto is not None:
+            if severity > abierto.severity:
+                abierto.severity, abierto.magnitude = severity, magnitude
+                self.record_event(tick, "shock" if severity >= 3 else "pert")
+            return
+        self.open_perturbation(tick, severity, signo, magnitude=magnitude, source=fuente)
 
     def _viability_margin(self) -> float:
         lo, hi = self.viability
@@ -1024,7 +1065,8 @@ class Drive(EventEmitter):
             magnitude = self.impulse_iota[min(2, max(1, severity) - 1)] * self._viability_margin()
         p = Perturbation(severity=int(severity), direction=math.copysign(1.0, direction),
                          born_at=int(tick), magnitude=float(magnitude),
-                         envelope=self.envelope, horizon=self.horizon, source=source)
+                         envelope=self.envelope, horizon=self.horizon, source=source,
+                         dt=self.dt)
         self._open.append(p)
         self._seen.append(p)
         self.record_event(int(tick), "shock" if severity >= 3 else "pert")
@@ -1046,7 +1088,10 @@ class Drive(EventEmitter):
         g = max(0.0, min(1.0, float(g)))
         closed = 0
         for p in self._open:
-            if p.open:
+            # A3 — el evento lo abrió el cruce de una variable concreta; lo
+            # cierra que ESA variable vuelva. Aplicar g a todo lo abierto hace
+            # que una sola acción se lleve el crédito de lo que no atendió.
+            if p.open and (not source or p.source == source):
                 p.g = min(1.0, p.g + g * (1.0 - p.g))
                 if p.g >= 0.98:
                     p.closed_at = int(tick)
@@ -1254,6 +1299,20 @@ class Drives:
             m = mortality[name] if isinstance(mortality, dict) else mortality
             out[name] = drive.calibrate(mortality=m, horizon=horizon, apply=apply, **kw)
         return out
+
+    @property
+    def dead(self) -> Optional[str]:
+        """A4.1 — viabilidad conjuntiva: la primera necesidad que cruza mata.
+
+        Devuelve el nombre de la que cruzó, o None. No hay una necesidad que
+        siga viva después de que otra cruzó su límite: el conjunto viable es la
+        intersección de todos los contratos.
+        """
+        for name, d in self._drives.items():
+            lo, hi = d.viability
+            if not (lo < d.value < hi):
+                return name
+        return None
 
     @property
     def pressure(self) -> float:

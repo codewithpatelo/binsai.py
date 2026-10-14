@@ -157,7 +157,9 @@ class ObservedVariable(EventEmitter):
         valid_range:      tuple[Optional[float], Optional[float]] = (None, None),
         source:           str             = "",
         zone_thresholds:  tuple[float, float, float] = (0.15, 0.40, 0.70),
-        levels:           Optional[dict]  = None,   # A6 §contrato: umbrales EN UNIDADES
+        levels:           Optional[dict]  = None,   # contrato: umbrales EN UNIDADES
+        hysteresis:       float           = 0.15,  # A2.2 — deadband, fracción de la banda
+        hemisphere:       str             = "deficit",  # qué hemisferio viola esta variable
         impulse_iota:     tuple[float, float, float] = (0.02, 0.06, 0.18),  # ι₁ ι₂ ι₃
         impulse_zeta:     float           = 0.6,   # ζ — improving satiates less
     ) -> None:
@@ -184,6 +186,10 @@ class ObservedVariable(EventEmitter):
         self.valid_range = valid_range
         self.source = source
         self.zone_thresholds = zone_thresholds
+        self.hysteresis = max(0.0, min(0.9, float(hysteresis)))
+        if hemisphere not in ("deficit", "superavit"):
+            raise ValueError(f"hemisphere must be 'deficit' or 'superavit', got {hemisphere!r}")
+        self.hemisphere = hemisphere
         self.levels = dict(levels) if levels else None
         if self.levels:
             self._check_levels()
@@ -196,6 +202,8 @@ class ObservedVariable(EventEmitter):
         self._last_zone: Optional[str] = None
         self._last_level_zone: Optional[str] = None   # v2.1 §1 — per-family zone state
         self._last_pace_zone: Optional[str] = None
+        self._p_level_prev: Optional[float] = None    # para Δp del evento
+        self._p_pace_prev:  Optional[float] = None
         self._invalid_reason: Optional[str] = "no samples"
         # last computed state (for introspection)
         self.last_level_pressure: Optional[float] = None
@@ -541,8 +549,30 @@ class ObservedVariable(EventEmitter):
             return f"moderate_{suffix}"
         return "equilibrium"
 
-    def _check_zone(self, p: float, t: float, value: float) -> None:
+    def _settled_zone(self, p: float, last: Optional[str]) -> str:
+        """A2.2 — la banda, con deadband a la salida.
+
+        Entrar a una banda peor es inmediato: el dolor no se demora. Salir exige
+        que la presión caiga una fracción `hysteresis` de la banda por debajo de
+        su umbral de entrada. El deadband es una fracción de la banda, así que
+        no tiene unidades propias y la misma calibración vale a cualquier escala.
+
+        Sin esto, una variable que oscila en un corte emite un evento por
+        muestra, y un agente que tiene que cerrar cada vibración no tiene
+        presupuesto para regular.
+        """
         zone = self.pressure_zone(p)
+        if not self.hysteresis or last is None:
+            return zone
+        sev_now, sev_last = self._severity(zone), self._severity(last)
+        if sev_now >= sev_last:
+            return zone
+        entry = (0.0,) + tuple(self.zone_thresholds)
+        piso = entry[sev_last] - self.hysteresis * (entry[sev_last] - entry[sev_last - 1])
+        return last if p >= piso else zone
+
+    def _check_zone(self, p: float, t: float, value: float) -> None:
+        zone = self._settled_zone(p, self._last_zone)
         if zone != self._last_zone:
             self.emit(ZONE_CHANGED, {
                 "variable":   self.name,
@@ -566,6 +596,12 @@ class ObservedVariable(EventEmitter):
             return 2
         return 3
 
+    def _band_width(self, sev: int) -> float:
+        """Ancho de la banda de entrada, en unidades de presión."""
+        b = (0.0,) + tuple(self.zone_thresholds) + (1.0,)
+        s = max(1, min(3, int(sev)))
+        return b[s + 1] - b[s]
+
     def _check_perturbation(self, p: Optional[float], t: float, kind: str) -> None:
         """v2.1 §1 — emit Perturbed on a zone crossing of this family.
 
@@ -576,8 +612,12 @@ class ObservedVariable(EventEmitter):
         """
         if p is None:
             return
-        zone = self.pressure_zone(min(1.0, p))
         last = self._last_level_zone if kind == "level" else self._last_pace_zone
+        if kind == "level":
+            self._p_level_prev, prev_hold = p, self._p_level_prev
+        else:
+            self._p_pace_prev, prev_hold = p, self._p_pace_prev
+        zone = self._settled_zone(min(1.0, p), last)
         if zone == last:
             return
         if kind == "level":
@@ -595,16 +635,20 @@ class ObservedVariable(EventEmitter):
         mag = self.impulse_iota[sev - 1]
         direction = "away" if sev_to > sev_from else "toward"
         impulse = mag if direction == "away" else -(mag * self.impulse_zeta)
+        prev = prev_hold
         self.emit(PERTURBED, {
-            "t":         t,
-            "variable":  self.name,
-            "kind":      kind,
-            "from":      last,
-            "to":        zone,
-            "direction": direction,
-            "severity":  sev,               # the drive sizes the envelope from this
-            "impulse":   round(impulse, 6),  # legacy scalar, kept for readers
-            "driveId":   None,              # filled by each subscribed drive
+            "t":          t,
+            "variable":   self.name,
+            "kind":       kind,
+            "from":       last,
+            "to":         zone,
+            "direction":  direction,
+            "severity":   sev,              # the drive sizes the envelope from this
+            "hemisphere": self.hemisphere,  # A3: el signo lo declara el contrato
+            "dp":         None if prev is None else abs(p - prev),
+            "band":       self._band_width(sev),
+            "impulse":    round(impulse, 6),  # legacy scalar, kept for readers
+            "driveId":    None,             # filled by each subscribed drive
         })
 
     @property

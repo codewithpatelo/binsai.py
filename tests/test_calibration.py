@@ -347,3 +347,34 @@ def test_a2_the_impulse_is_symmetric_in_the_hemispheres():
     d.value = d.set_point - 0.4*(d.set_point - d.viability[0])
     deficit = homeostatic_error(d)
     assert superavit == pytest.approx(deficit), "el impulso no puede mirar un solo hemisferio"
+
+
+def test_a4_1_the_first_crossing_kills_the_agent():
+    """A4.1 — viabilidad conjuntiva."""
+    viva, cruza = make(+1.0, name="viva"), make(-1.0, name="cruza")
+    drives = Drives([viva, cruza])
+    assert drives.dead is None
+    cruza.value = cruza.viability[0]
+    assert drives.dead == "cruza"
+
+
+def test_a3_an_action_only_closes_what_it_attended():
+    d = flat()
+    d.open_perturbation(1, 3, -1.0, source="ram")
+    d.open_perturbation(2, 3, -1.0, source="gasto")
+    assert d.open_perturbations == 2
+    assert d.correct(10, g=1.0, source="ram") == 1
+    assert d.open_perturbations == 1, "la acción sobre ram no cierra el evento de gasto"
+
+
+def test_a3_the_release_is_a_phase_not_a_jump():
+    d = flat()
+    p = d.open_perturbation(1, 3, -1.0, source="v")
+    for t in range(1, 60):
+        d.update(tick=t)
+    antes = abs(p.level(60))
+    d.correct(60, g=1.0, source="v")
+    fade = p.envelope.release * p.horizon / p.dt
+    medio = abs(p.level(60 + int(fade/2)))
+    assert 0.0 < medio < antes, "la R baja a lo largo del release, no de un salto"
+    assert abs(p.level(60 + int(fade) + 1)) == 0.0

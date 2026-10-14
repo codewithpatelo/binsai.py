@@ -95,22 +95,57 @@ class TestPerturbationIsAnImpulse:
         assert drive.correct(tick=3, g=1.0) == 1
         assert drive.open_perturbations == 0
 
-    def test_toward_crossing_is_weaker(self):
-        """ζ asymmetry: improving satiates less than worsening perturbs."""
+    def test_the_world_easing_off_neither_opens_nor_releases(self):
+        """A3 — el release es lo que aporta una acción de calidad, y nada más.
+
+        Un cruce hacia la zona estable no abre un evento espejado ni apaga el
+        que está abierto. Si lo apagara, el agente se llevaría crédito por la
+        suerte del mundo y el axioma 3 no existiría. Lo que sí hace es bajar la
+        condición: la próxima salida de verde abre un evento nuevo, porque es
+        otra perturbación.
+        """
         var = ObservedVariable(
             name="ram_free_gb", kind="floor", limit=(0.0, 10.0),
             set_point=10.0, pressure_fn="linear", window=None,
         )
         drive = make_drive(value=0.50)
         drive.observed = [var]
-        var.observe(0.0, 1.0)           # red anchor
+        var.observe(0.0, 10.0)
         drive.update(tick=0)
-        var.observe(1.0, 10.0)          # back to green: toward
+        var.observe(1.0, 1.0)           # verde -> rojo: abre
         drive.update(tick=1)
         assert drive.open_perturbations == 1
-        easing = drive._open[-1]
-        margin = drive._viability_margin()
-        assert easing.magnitude == pytest.approx(0.18 * margin * 0.6, rel=1e-9)
+        abierto = drive._open[-1]
+
+        var.observe(2.0, 10.0)          # el mundo aflojó: no abre ni libera
+        drive.update(tick=2)
+        assert drive.open_perturbations == 1
+        assert drive._open[-1] is abierto
+        assert abierto.g == 0.0, "nadie actuó: la saciedad es cero"
+        assert abierto.closed_at is None
+
+        var.observe(3.0, 1.0)           # vuelve a salir: ES otra perturbación
+        drive.update(tick=3)
+        assert drive.open_perturbations == 2
+
+    def test_a_worse_band_escalates_instead_of_opening_another(self):
+        """La condición es una; el evento también, mientras siga fuera."""
+        var = ObservedVariable(
+            name="ram_free_gb", kind="floor", limit=(0.0, 10.0),
+            set_point=10.0, pressure_fn="linear", window=None,
+        )
+        drive = make_drive(value=0.50)
+        drive.observed = [var]
+        var.observe(0.0, 10.0)
+        drive.update(tick=0)
+        var.observe(1.0, 6.0)           # verde -> amarillo
+        drive.update(tick=1)
+        assert drive.open_perturbations == 1
+        sev1 = drive._open[-1].severity
+        var.observe(2.0, 1.0)           # empeora sin volver: escala
+        drive.update(tick=2)
+        assert drive.open_perturbations == 1, "la misma condición no abre otro evento"
+        assert drive._open[-1].severity > sev1
 
 
 class TestPressureNormalizationAndAggregation:

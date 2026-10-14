@@ -329,7 +329,10 @@ def calibrate_drive_perturbation(
             "arrivals and magnitude sets the exploratory budget, so guessing the rate "
             "silently decides the magnitude of every hit.")
 
-    period = 2.0 * math.pi / math.sqrt(drive.kappa) * drive.dt if drive.kappa > 0 else float("inf")
+    # El período sale de κ, que está en tiempo del mundo igual que `horizon`;
+    # multiplicarlo por dt lo convertía en pulsos y rompía la comparación con
+    # `rate/H`. Con dt = 1 coincidían, que es por qué no se veía.
+    period = 2.0 * math.pi / math.sqrt(drive.kappa) if drive.kappa > 0 else float("inf")
     per_period = rate * period / H
     if per_period < 10.0:
         raise ValueError(
