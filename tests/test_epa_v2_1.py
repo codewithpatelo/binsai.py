@@ -62,13 +62,15 @@ class TestPerturbationIsAnImpulse:
         assert not drive.impulses, "the envelope must not enter the acceleration channel"
         assert drive.perturbation_load == 0.0, "the attack starts at zero and climbs"
 
-        # A: it ramps to the peak over `rise`, then D falls to the sustain
+        # A: it ramps to the peak over `rise` and then HOLDS there. A sustain
+        # below the peak would be the world handing back part of the event
+        # without any corrective action, which A3 forbids.
         loads = []
         for t in range(2, 40):
             drive.update(tick=t)
             loads.append(abs(drive.perturbation_load))
         assert loads[0] < loads[4], "the attack must climb"
-        assert max(loads) > loads[-1], "and then decay off the peak"
+        assert loads[-1] == pytest.approx(max(loads), rel=1e-6), "y después sostiene"
 
         # S: it keeps pressing — the world never closes an event
         for t in range(40, 300):

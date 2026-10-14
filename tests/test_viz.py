@@ -135,10 +135,11 @@ class TestTrajectoryArtifact:
         svg = timeline_svg(d)
         assert 'fill-opacity="0.55"' not in svg
 
-    def test_kappa_tick_on_setpoint(self):
+    def test_no_kappa_tick(self):
+        """La marca del resorte se sacó: iba sobre la tira y sin leyenda."""
         d = make_trajectory()
         svg = timeline_svg(d)
-        assert 'stroke="#BC8CFF"' in svg  # κ vertical tick (dark theme)
+        assert 'stroke="#BC8CFF"' not in svg
 
     def test_light_theme(self):
         d = make_trajectory()

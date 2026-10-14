@@ -73,7 +73,38 @@ class PerturbationEnvelope:
     rise:    float = 0.010          # time to the peak, fraction of the horizon
     decay:   float = 0.0015         # peak -> sustain time constant, idem
     release: float = 0.036          # fade-out once an action closed it, idem
-    sustain_fraction: float = 0.25  # sustained level, as a fraction of the peak
+    sustain_fraction: float = 1.0   # sustained level, as a fraction of the peak.
+    # A3: the world never closes an event. A sustain below the peak is the
+    # world giving back part of the perturbation on its own, which is a release
+    # without a measured corrective action. Only a contract that declares a
+    # genuinely self-healing variable should lower this.
+
+
+@dataclass
+class Correccion:
+    """Un zone pass de la variable observada HACIA el punto de equilibrio.
+
+    Es lo único que cura una necesidad. Su magnitud es la misma escala que la
+    del ataque —ι(severidad del cruce) por la distancia de viabilidad— con el
+    signo invertido, y entra con la forma del release: no aparece de golpe,
+    sube durante R y después sostiene. No es un factor que escala un evento
+    abierto; es un desplazamiento propio y simétrico al golpe.
+    """
+    severity:  int
+    direction: float                # hacia el punto de equilibrio
+    born_at:   int
+    magnitude: float
+    release:   float                # fracción del horizonte
+    horizon:   float
+    source:    str = ""
+    de:        str = ""
+    a:         str = ""
+    dt:        float = 1.0
+
+    def level(self, tick: int) -> float:
+        R = max(self.release * self.horizon, 1e-9)
+        frac = min(1.0, max(0.0, ((tick - self.born_at) * self.dt) / R))
+        return self.direction * self.magnitude * frac
 
 
 @dataclass
@@ -93,9 +124,29 @@ class Perturbation:
     horizon:   float
     source:    str = ""
     g:         float = 0.0
+    es_correccion: bool = False     # zone pass HACIA el punto de equilibrio
+    de:        str = ""             # zona de la que salió: el cruce ES el evento
+    a:         str = ""             # zona a la que entró
     closed_at: Optional[int] = None
 
     dt: float = 1.0                 # cuánto tiempo del mundo vale un pulso
+
+    def en_adsr(self, tick: int) -> bool:
+        """¿La perturbación está transcurriendo en este pulso?
+
+        Dura su envolvente: el ataque y el decaimiento desde que nace, y la
+        rampa de release si una acción la cerró. El sustain NO es el evento
+        transcurriendo: es el desplazamiento que quedó, y puede quedar para
+        siempre si nadie corrige. Confundir las dos cosas congela la necesidad.
+        """
+        e, H = self.envelope, self.horizon
+        s = (tick - self.born_at) * self.dt
+        if 0 <= s <= (e.rise + e.decay) * H:
+            return True
+        if self.closed_at is not None:
+            sr = (tick - self.closed_at) * self.dt
+            return 0 <= sr <= e.release * H
+        return False
 
     def level(self, tick: int) -> float:
         """Signed displacement this event contributes at `tick`.
@@ -250,6 +301,10 @@ class Drive(EventEmitter):
     _sustained:     dict[str, float] = field(default_factory=dict, repr=False)  # u stimuli
     _impulses:      list[tuple[int, float]] = field(default_factory=list, repr=False)  # (tick, a_imp)
     _open:          list["Perturbation"] = field(default_factory=list, repr=False)
+    _curas:         list["Correccion"] = field(default_factory=list, repr=False)
+    basal_suspendida: bool = False   # no corre la basal: hay perturbación o acción
+    _curas_disponibles: dict = field(default_factory=dict, repr=False)
+    _cierres_disponibles: set = field(default_factory=set, repr=False)
     _seen:          list["Perturbation"] = field(default_factory=list, repr=False)
     # banda actual por variable observada: distingue la CONDICIÓN del EVENTO
     _zona_fuente:   dict = field(default_factory=dict, repr=False)
@@ -333,13 +388,13 @@ class Drive(EventEmitter):
         # that's where risk lives under basal neglect.
         if self.zones is None:
             self.zones = [
-                ZoneSpec("critical_deficit",     0.20, 0.12),
-                ZoneSpec("high_deficit",         0.45, 0.10),
-                ZoneSpec("moderate_deficit",     0.60, 0.08),
-                ZoneSpec("equilibrium",          0.70, 0.08),
-                ZoneSpec("moderate_superavit",   0.78, 0.08),
-                ZoneSpec("high_superavit",       0.87, 0.08),
-                ZoneSpec("critical_superavit",   0.95, 0.08),
+                ZoneSpec("deficit_rojo",     0.20, 0.12),
+                ZoneSpec("deficit_ambar",         0.45, 0.10),
+                ZoneSpec("deficit_amarillo",     0.60, 0.08),
+                ZoneSpec("verde",          0.70, 0.08),
+                ZoneSpec("superavit_amarillo",   0.78, 0.08),
+                ZoneSpec("superavit_ambar",       0.87, 0.08),
+                ZoneSpec("superavit_rojo",   0.95, 0.08),
             ]
         self._last_zone = None  # Force first update() to emit zone.enter
 
@@ -844,7 +899,15 @@ class Drive(EventEmitter):
         # The envelope presses on the level before the dynamics run, so the
         # spring sees the displacement this pulse and pulls against it.
         self._settle_perturbations(tick)
-        if self.spring == "magnetic-2nd":
+        # La dinámica basal es lo que le pasa a la necesidad cuando NO hay
+        # perturbaciones ni acciones. Mientras las hay no corre: ni deriva, ni
+        # resorte, ni carga alostática, y la velocidad queda congelada donde
+        # estaba, así que al reanudar sigue de ahí y no desde cero. El valor se
+        # mueve sólo por las envolventes, que ya se aplicaron arriba. Todo lo
+        # que viene después —viabilidad, zonas, sensores— sigue corriendo.
+        if self.basal_suspendida:
+            pass
+        elif self.spring == "magnetic-2nd":
             self._update_second_order(tick, coupling)
         else:
             spring_delta = self._spring_step(tick)
@@ -946,7 +1009,7 @@ class Drive(EventEmitter):
     def _emit_zone_changed(self, prev: Optional[str], new: str,
                            memberships: dict[str, float], tick: int) -> None:
         side = ("deficit" if "deficit" in new
-                else "superavit" if "superavit" in new else "equilibrium")
+                else "superavit" if "superavit" in new else "verde")
         self.emit(ZONE_CHANGED, {
             "drive":       self.name,
             "prev_zone":   prev,
@@ -1017,7 +1080,20 @@ class Drive(EventEmitter):
         previa = self._zona_fuente.get(fuente, 0)
         if hacia:
             destino = str(payload.get("to", ""))
-            self._zona_fuente[fuente] = 0 if ("equilibrium" in destino or not destino) else severity
+            if not destino:
+                return
+            previa_z = self._zona_fuente.get(fuente, 0)
+            self._zona_fuente[fuente] = 0 if "verde" in destino else severity
+            if severity < 1:
+                return
+            # El cruce hacia el equilibrio queda DISPONIBLE, no aplicado: una
+            # corrección es un cruce causado por una acción de calidad. Sin
+            # agente no hay corrección, y el mundo no se cura solo (A3).
+            self._curas_disponibles[fuente] = (tick, severity,
+                                               str(payload.get("hemisphere", "deficit")),
+                                               str(payload.get("from", "")), destino)
+            if previa_z and "verde" in destino:
+                self._cierres_disponibles.add(fuente)
             return
         if severity < 1:
             return
@@ -1028,23 +1104,115 @@ class Drive(EventEmitter):
         # hacia la pared baja aunque la necesidad esté arriba de su equilibrio.
         signo = -1.0 if payload.get("hemisphere", "deficit") == "deficit" else +1.0
         margin = self._viability_margin()
-        dp, band = payload.get("dp"), payload.get("band")
-        if dp is not None and dp > 0:
-            # La magnitud es cuánto se movió la presión de la variable, topada
-            # en el ancho de la banda de entrada: un sensor que salta tres
-            # bandas en una muestra emite un evento severo, no un golpe de tres
-            # bandas. Eso sería ruido del sensor entrando como magnitud.
-            magnitude = min(float(dp), float(band or 1.0)) * margin
-        else:
-            magnitude = self.impulse_iota[min(2, severity - 1)] * margin
+        # El ataque es `marginFraction(severidad) · distancia de viabilidad`,
+        # donde la severidad es el cruce de zona: verde→amarillo, amarillo→ámbar,
+        # ámbar→rojo. Lo declara el contrato (ι), no el salto de presión del
+        # sensor: dos cruces de la misma zona pesan lo mismo aunque uno venga
+        # de una muestra ruidosa y el otro de una rampa.
+        magnitude = self.impulse_iota[min(2, max(1, severity) - 1)] * margin
 
         abierto = next((p for p in self._open if p.open and p.source == fuente), None)
         if previa > 0 and abierto is not None:
             if severity > abierto.severity:
                 abierto.severity, abierto.magnitude = severity, magnitude
+                abierto.de, abierto.a = str(payload.get("from", "")), str(payload.get("to", ""))
                 self.record_event(tick, "shock" if severity >= 3 else "pert")
             return
-        self.open_perturbation(tick, severity, signo, magnitude=magnitude, source=fuente)
+        ev = self.open_perturbation(tick, severity, signo, magnitude=magnitude, source=fuente)
+        ev.de, ev.a = str(payload.get("from", "")), str(payload.get("to", ""))
+
+    def zona_verde(self) -> tuple[float, float]:
+        """El intervalo de valores que es la zona verde de esta necesidad."""
+        z = next((q for q in self.zones if q.name == "verde"), None)
+        w = z.width if z is not None else 0.0
+        c = z.center if z is not None else self.set_point
+        return (c - w, c + w)
+
+    def distancia_a_verde(self) -> float:
+        """Cuánto hay que mover el valor para que la necesidad quede en verde."""
+        lo, hi = self.zona_verde()
+        if self.value < lo:
+            return lo - self.value
+        if self.value > hi:
+            return hi - self.value
+        return 0.0
+
+    def distancia_a_banda_siguiente(self) -> float:
+        """Cuánto hay que mover el valor para cruzar UNA banda hacia el equilibrio.
+
+        La consecuencia exitosa de una acción es un zone pass, y un zone pass es
+        discreto: rojo→ámbar, ámbar→amarillo, amarillo→verde. Una acción no
+        teletransporta la necesidad a verde; la sube un escalón. Para llegar a
+        verde desde rojo hacen falta tres acciones exitosas, cada una con su
+        release.
+        """
+        d = self.value - self.set_point
+        if d == 0:
+            return 0.0
+        lado = 1.0 if d > 0 else -1.0
+        # bordes de banda del lado en que está, ordenados hacia el equilibrio
+        bordes = sorted({z.center + lado * z.width for z in self.zones
+                         if (z.center - self.set_point) * lado >= 0},
+                        reverse=lado > 0)
+        for b in bordes:
+            if (self.value - b) * lado > 0:          # todavía está más afuera
+                return (b - self.value) - lado * 1e-6
+        return 0.0
+
+    def valor_proyectado(self, ticks: int) -> float:
+        """Dónde va a estar el valor en `ticks` pulsos si nadie actúa.
+
+        Es la misma integración hacia adelante con u = 0 que usa el TTD, pero
+        devolviendo el valor en vez del cruce. La necesita cualquier acción que
+        quiera llegar a destino: entre que el agente actúa y que su corrección
+        termina de entrar pasa un release entero, y durante ese rato la deriva
+        sigue trabajando.
+        """
+        import copy
+        c = copy.copy(self)
+        c._history = list(self._history)
+        c._events = list(self._events)
+        c._sustained = {}
+        c._impulses = []
+        c.observed = []
+        c._open = list(self._open)
+        c._curas = list(self._curas)
+        t0 = self._history[-1][0] if self._history else 0
+        for k in range(1, max(1, int(ticks)) + 1):
+            c.update(tick=t0 + k)
+        return c.value
+
+    def distancia_a_verde_proyectada(self, ticks: int) -> float:
+        """Cuánto hay que mover ahora para quedar en verde dentro de `ticks`."""
+        lo, hi = self.zona_verde()
+        v = self.valor_proyectado(ticks)
+        if v < lo:
+            return lo - v
+        if v > hi:
+            return hi - v
+        return 0.0
+
+    def open_correction(self, tick: int, severity: int, source: str = "", *,
+                        hemisphere: str = "deficit", de: str = "", a: str = "",
+                        magnitude: Optional[float] = None) -> "Correccion":
+        """Abre una corrección: un cruce de zona hacia el punto de equilibrio.
+
+        La magnitud es la del ataque equivalente, ι(severidad) · margen de
+        viabilidad, con el signo que devuelve la necesidad hacia su equilibrio.
+        """
+        import math
+        if magnitude is not None:
+            signo, mag = math.copysign(1.0, magnitude), abs(magnitude)
+        else:
+            signo = +1.0 if hemisphere == "deficit" else -1.0
+            mag = self.impulse_iota[min(2, max(1, severity) - 1)] * self._viability_margin()
+        c = Correccion(severity=int(severity), direction=math.copysign(1.0, signo),
+                       born_at=int(tick), magnitude=float(mag),
+                       release=PerturbationEnvelope().release, horizon=self.horizon,
+                       source=source, de=de, a=a, dt=self.dt)
+        self._curas.append(c)
+        self.record_event(tick, "cura")
+        return c
 
     def _viability_margin(self) -> float:
         lo, hi = self.viability
@@ -1077,6 +1245,15 @@ class Drive(EventEmitter):
             "open_events": self.open_perturbations,
         })
         return p
+
+    def cobrar_correccion(self, tick: int, source: str) -> Optional["Correccion"]:
+        """El agente actuó sobre `source`: si la variable cruzó hacia el punto
+        de equilibrio, ese cruce es su corrección y recién ahora cura."""
+        d = self._curas_disponibles.pop(source, None)
+        if d is None:
+            return None
+        _t, sev, hemi, de, a = d
+        return self.open_correction(tick, sev, source, hemisphere=hemi, de=de, a=a)
 
     def correct(self, tick: int, g: float, source: str = "") -> int:
         """A corrective action of **measured** quality g. Returns events it closed.
@@ -1137,7 +1314,8 @@ class Drive(EventEmitter):
     def _settle_perturbations(self, tick: int) -> None:
         """Write this pulse's net envelope displacement onto the level channel."""
         self._open = [p for p in self._open if not p.expired(tick)]
-        total = sum(p.level(tick) for p in self._open)
+        total = (sum(p.level(tick) for p in self._open)
+                 + sum(c.level(tick) for c in self._curas))
         delta = total - self._settled
         self._settled = total
         if delta:
@@ -1238,6 +1416,13 @@ class Drive(EventEmitter):
         """Dominant zone name (highest Gaussian membership)."""
         memberships = self.zone_memberships()
         return max(memberships, key=memberships.__getitem__)
+
+    def zona_de(self, valor: float) -> str:
+        """La zona en que caería `valor`, sin tocar el estado de la necesidad."""
+        import math
+        raw = {z.name: math.exp(-0.5 * ((valor - z.center) / z.width) ** 2)
+               for z in (self.zones or [])}
+        return max(raw, key=raw.__getitem__) if raw else "verde"
 
     def zone_memberships(self) -> dict[str, float]:
         """Gaussian memberships over the drive's configured zones. Values sum to 1.0."""

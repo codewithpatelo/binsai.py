@@ -32,22 +32,22 @@ const SPRITE_W    = 64 * LAYER_SCALE;
 const SPRITE_H    = 64 * LAYER_SCALE;
 
 const ZONE_COLOR_HEX = {
-  critical_superavit:   0x2ea043,
-  high_superavit:       0x3fb950,
-  moderate_superavit:   0x56d364,
+  superavit_rojo:   0x2ea043,
+  superavit_ambar:       0x3fb950,
+  superavit_amarillo:   0x56d364,
   equilibrium:          0x58a6ff,
-  moderate_deficit:     0xd29922,
-  high_deficit:         0xe36209,
-  critical_deficit:     0xf85149,
+  deficit_amarillo:     0xd29922,
+  deficit_ambar:         0xe36209,
+  deficit_rojo:     0xf85149,
 };
 const ZONE_COLOR_CSS = {
-  critical_superavit:   '#2ea043',
-  high_superavit:       '#3fb950',
-  moderate_superavit:   '#56d364',
+  superavit_rojo:   '#2ea043',
+  superavit_ambar:       '#3fb950',
+  superavit_amarillo:   '#56d364',
   equilibrium:          '#58a6ff',
-  moderate_deficit:     '#d29922',
-  high_deficit:         '#e36209',
-  critical_deficit:     '#f85149',
+  deficit_amarillo:     '#d29922',
+  deficit_ambar:         '#e36209',
+  deficit_rojo:     '#f85149',
 };
 
 // Per-agent hair tints (applied to the hair layer only)
@@ -67,8 +67,8 @@ const STATS_BASE_OFFSET = SPRITE_TOP + (64 * 2) + 6;   // = 188 — first stats 
 
 function zoneToSemaphore(zone) {
   return {
-    critical_superavit: 0x2ea043, high_superavit: 0x3fb950, moderate_superavit: 0x56d364,
-    equilibrium: 0x58a6ff, moderate_deficit: 0xd29922, high_deficit: 0xe36209, critical_deficit: 0xf85149,
+    superavit_rojo: 0x2ea043, superavit_ambar: 0x3fb950, superavit_amarillo: 0x56d364,
+    equilibrium: 0x58a6ff, deficit_amarillo: 0xd29922, deficit_ambar: 0xe36209, deficit_rojo: 0xf85149,
   }[zone] || 0x58a6ff;
 }
 
@@ -301,13 +301,13 @@ class InboxScene extends Phaser.Scene {
     });
     lY += 11;
     var zoneRows = [
-      ['#2ea043', 0x2ea043, 'critical_superavit'],
-      ['#3fb950', 0x3fb950, 'high_superavit'],
-      ['#56d364', 0x56d364, 'moderate_superavit'],
-      ['#58a6ff', 0x58a6ff, 'equilibrium'],
-      ['#d29922', 0xd29922, 'moderate_deficit'],
-      ['#e36209', 0xe36209, 'high_deficit'],
-      ['#f85149', 0xf85149, 'critical_deficit'],
+      ['#2ea043', 0x2ea043, 'superavit_rojo'],
+      ['#3fb950', 0x3fb950, 'superavit_ambar'],
+      ['#56d364', 0x56d364, 'superavit_amarillo'],
+      ['#58a6ff', 0x58a6ff, 'verde'],
+      ['#d29922', 0xd29922, 'deficit_amarillo'],
+      ['#e36209', 0xe36209, 'deficit_ambar'],
+      ['#f85149', 0xf85149, 'deficit_rojo'],
     ];
     zoneRows.forEach(function(row) {
       legGfx.fillStyle(row[1], 1);
@@ -831,9 +831,9 @@ class InboxScene extends Phaser.Scene {
       }
       var bodyTint = 0xffffff;
       if (!isAblated) {
-        if (zone === 'critical_deficit')    bodyTint = 0xffbbbb;
-        else if (zone === 'high_deficit')   bodyTint = 0xffddcc;
-        else if (zone === 'critical_superavit') bodyTint = 0xbbddff;
+        if (zone === 'deficit_rojo')    bodyTint = 0xffbbbb;
+        else if (zone === 'deficit_ambar')   bodyTint = 0xffddcc;
+        else if (zone === 'superavit_rojo') bodyTint = 0xbbddff;
       }
       var activeLayers = useCast ? obj.castLayers : obj.walkLayers;
       activeLayers.forEach(function(s, idx) { s.setTint(idx === activeLayers.length - 1 ? obj.hairTint : bodyTint); });
@@ -1099,8 +1099,8 @@ class InboxScene extends Phaser.Scene {
 
   _drawMemberships(gfx, panelX, barY, panelW, members) {
     gfx.clear();
-    var zones = ['critical_superavit', 'high_superavit', 'moderate_superavit',
-                  'equilibrium', 'moderate_deficit', 'high_deficit', 'critical_deficit'];
+    var zones = ['superavit_rojo', 'superavit_ambar', 'superavit_amarillo',
+                  'verde', 'deficit_amarillo', 'deficit_ambar', 'deficit_rojo'];
     var bx = panelX + 8, by = barY, bw = panelW - 16, bh = 5;
     var zw = Math.floor(bw / 7) - 1;
     zones.forEach(function(z, idx) {
@@ -1153,13 +1153,13 @@ class InboxScene extends Phaser.Scene {
 
       // ── Zone bands (shaded behind trajectory) ──
       var zoneDefs = [
-        { name: 'critical_superavit',   y0: 0.00, y1: 0.09, color: 0x2ea043, alpha: 0.12 },
-        { name: 'high_superavit',       y0: 0.09, y1: 0.17, color: 0x3fb950, alpha: 0.10 },
-        { name: 'moderate_superavit',   y0: 0.17, y1: 0.26, color: 0x56d364, alpha: 0.08 },
-        { name: 'equilibrium',          y0: 0.26, y1: 0.35, color: 0x58a6ff, alpha: 0.08 },
-        { name: 'moderate_deficit',     y0: 0.35, y1: 0.48, color: 0xd29922, alpha: 0.10 },
-        { name: 'high_deficit',         y0: 0.48, y1: 0.68, color: 0xe36209, alpha: 0.12 },
-        { name: 'critical_deficit',     y0: 0.68, y1: 1.00, color: 0xf85149, alpha: 0.14 },
+        { name: 'superavit_rojo',   y0: 0.00, y1: 0.09, color: 0x2ea043, alpha: 0.12 },
+        { name: 'superavit_ambar',       y0: 0.09, y1: 0.17, color: 0x3fb950, alpha: 0.10 },
+        { name: 'superavit_amarillo',   y0: 0.17, y1: 0.26, color: 0x56d364, alpha: 0.08 },
+        { name: 'verde',          y0: 0.26, y1: 0.35, color: 0x58a6ff, alpha: 0.08 },
+        { name: 'deficit_amarillo',     y0: 0.35, y1: 0.48, color: 0xd29922, alpha: 0.10 },
+        { name: 'deficit_ambar',         y0: 0.48, y1: 0.68, color: 0xe36209, alpha: 0.12 },
+        { name: 'deficit_rojo',     y0: 0.68, y1: 1.00, color: 0xf85149, alpha: 0.14 },
       ];
       zoneDefs.forEach(function(zd) {
         var zy = sy + sh * zd.y0;

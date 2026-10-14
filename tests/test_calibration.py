@@ -218,7 +218,13 @@ def test_the_rate_can_be_measured_from_what_the_drive_received():
 
 # ── the envelope, through the drive's own channel ────────────────────────────
 
-def test_an_event_climbs_decays_and_then_holds():
+def test_an_event_climbs_and_then_holds_until_an_action_closes_it():
+    """A3: el mundo no devuelve nada por su cuenta.
+
+    El evento sube durante el ataque y después SOSTIENE. Un sustain por debajo
+    del pico sería el mundo regalando parte de la perturbación sin que ninguna
+    acción la haya corregido, que es un release sin calidad medida.
+    """
     d = flat()
     d.open_perturbation(1, 3, +1.0)
     trace = []
@@ -226,9 +232,9 @@ def test_an_event_climbs_decays_and_then_holds():
         d.update(tick=t)
         trace.append(d.perturbation_load)
     peak = max(trace)
-    assert trace[2] < trace[8] <= peak           # A
-    assert trace[60] < peak                      # D
-    assert trace[-1] == pytest.approx(trace[-60], rel=0.02)   # S holds
+    assert trace[2] < trace[8] <= peak                        # A
+    assert trace[60] == pytest.approx(peak, rel=1e-6)         # S = pico
+    assert trace[-1] == pytest.approx(trace[-60], rel=0.02)   # y sostiene
     assert d.open_perturbations == 1
 
 
@@ -279,7 +285,7 @@ def test_a2_the_rate_reads_the_drive_not_its_sensors():
                              levels={"verde": 5, "amarillo": 10, "ambar": 25, "rojo": 50})
     d.observed = [techo]
     techo.observe(1.0, 104.0)                    # el gasto duplicó su techo y no vuelve
-    assert techo.level_zone(104.0) == "critical"
+    assert techo.level_zone(104.0) == "rojo"
     assert d.value == d.set_point
     assert homeostatic_error(d) == 0.0, "en el set-point la tasa es cero, mire lo que mire el sensor"
 

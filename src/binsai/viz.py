@@ -70,18 +70,19 @@ _KINDS = {
     "alarm":   "diamond",
     "shock":   "bar",
     "release": "diamond-k",   # spring tension discharge — kappa purple
+    "cura":    "tri-up-ok",   # corrección: zone pass hacia el punto de equilibrio
 }
 
 
 def _zone_color(name: str, th: dict) -> str:
     n = name.lower()
-    if "equilibrium" in n:
+    if "verde" in n:
         return th["ok"]
-    if "moderate" in n:
+    if "amarillo" in n:
         return th["warn"]
-    if "high" in n:
+    if "ambar" in n:
         return th["bad"]
-    if "critical" in n:
+    if "rojo" in n:
         return th["dead"]
     return th["warn"]
 
@@ -94,7 +95,7 @@ def _zone_bands(zones) -> list[tuple[float, float, str]]:
     (parametrizable per drive, default seven).
     """
     if not zones:
-        return [(0.0, 1.0, "equilibrium")]
+        return [(0.0, 1.0, "verde")]
     zs = sorted(zones, key=lambda z: z.center)
     edges = [0.0]
     for a, b in zip(zs, zs[1:]):
@@ -173,6 +174,10 @@ def _event_mark(kind: str, cx: float, cy: float, th: dict) -> str:
         return f'<path d="M{cx - 4:.1f} {cy - 1:.1f} h8 l-4 7z" fill="{bad}"/>'
     if shape == "diamond":
         return f'<path d="M{cx:.1f} {cy - 6:.1f} l4 3 l-4 3 l-4-3z" fill="{dead}"/>'
+    if shape == "tri-up-ok":
+        # corrección: triángulo hacia arriba, verde. Apunta al punto de
+        # equilibrio, al revés que la perturbación.
+        return f'<path d="M{cx:.1f} {cy - 8:.1f} l4 7 h-8z" fill="{th["ok"]}"/>'
     if shape == "diamond-k":
         return f'<path d="M{cx:.1f} {cy - 6:.1f} l4 3 l-4 3 l-4-3z" fill="{th["kappa"]}"/>'
     return f'<rect x="{cx - 1:.1f}" y="{cy - 6:.1f}" width="2" height="7" fill="{soft}"/>'
@@ -272,12 +277,6 @@ def _render_strip(
     # valor: κ está en 1/tiempo² y con un reloj del mundo (κ = 17,66 por hora²)
     # daba 2182 px sobre una tira de 137. Y va al margen izquierdo, porque en el
     # derecho se superpone con el final de la trayectoria y se lee como un evento.
-    k_h = max(4.0, min(0.45 * ph, drive.spring_reach * ph))
-    kx = x0 + 5
-    g.append(
-        f'<line x1="{kx:.1f}" x2="{kx:.1f}" y1="{sp_y - k_h:.1f}" y2="{sp_y + k_h:.1f}" '
-        f'stroke="{th["kappa"]}" stroke-width="2.6"/>'
-    )
 
     # ── cognitive cycles: an activation is an interval, not a point ──
     # Una activación es un ciclo cognitivo acotado: empieza cuando el agente
@@ -490,6 +489,33 @@ def timeline_svg(
     parts.append(
         f'<text x="{_MARGIN["l"] + pw:.1f}" y="{axis_y + 30:.1f}" text-anchor="end" '
         f'font-size="10" fill="{th["soft"]}">{xlab}</text>'
+    )
+    # Guía de lectura: una regla vertical que sigue el puntero y una etiqueta
+    # con el tick. Sin ella hay que adivinar en qué minuto pasa cada cosa.
+    parts.append(
+        f'<g class="bx-hov" style="pointer-events:none;opacity:0">'
+        f'<line class="bx-rule" x1="0" x2="0" y1="{_MARGIN["t"]}" y2="{axis_y:.1f}" '
+        f'stroke="{th["ink"]}" stroke-width="1" stroke-dasharray="3 3"/>'
+        f'<rect class="bx-box" x="0" y="{_MARGIN["t"] - 16:.1f}" width="54" height="15" rx="3" '
+        f'fill="{th["bg"]}" stroke="{th["ink"]}" stroke-width="0.6"/>'
+        f'<text class="bx-txt" x="0" y="{_MARGIN["t"] - 5:.1f}" font-size="10" '
+        f'fill="{th["ink"]}" text-anchor="middle"></text></g>'
+        f'<rect class="bx-cap" x="{_MARGIN["l"]}" y="{_MARGIN["t"]}" width="{pw:.1f}" '
+        f'height="{axis_y - _MARGIN["t"]:.1f}" fill="transparent"/>'
+    )
+    parts.append(
+        "<script><![CDATA[(function(){var s=document.currentScript.ownerSVGElement;"
+        "var g=s.querySelector('.bx-hov'),l=g.querySelector('.bx-rule'),"
+        "b=g.querySelector('.bx-box'),x=g.querySelector('.bx-txt'),"
+        f"L={_MARGIN['l']},W={pw:.1f},T={tmax};"
+        "function pt(e){var p=s.createSVGPoint();p.x=e.clientX;p.y=e.clientY;"
+        "return p.matrixTransform(s.getScreenCTM().inverse());}"
+        "s.addEventListener('mousemove',function(e){var q=pt(e);"
+        "if(q.x<L||q.x>L+W){g.style.opacity=0;return;}g.style.opacity=1;"
+        "var t=Math.round((q.x-L)/W*T);l.setAttribute('x1',q.x);l.setAttribute('x2',q.x);"
+        "b.setAttribute('x',q.x-27);x.setAttribute('x',q.x);"
+        "x.textContent='min '+t;});"
+        "s.addEventListener('mouseleave',function(){g.style.opacity=0;});})();]]></script>"
     )
     parts.append("</svg>")
     return "".join(parts)

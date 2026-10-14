@@ -141,7 +141,7 @@ class TestZones:
         v = ObservedVariable(name="x", kind="budget", limit=100.0)
         v.observe(t=0.0, value=90.0)
         zone = v.zone
-        assert "deficit" in zone or zone == "equilibrium"
+        assert "deficit" in zone or zone == "verde"
 
 
 class TestRateEstimator:

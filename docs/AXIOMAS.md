@@ -231,3 +231,85 @@ código.
 intensidad de la perturbación que emite tiene que llevar a la muerte — o el
 contrato declara `nivel_muerte` y ahí no hay ambigüedad. Un rojo del que se
 vuelve solo no era rojo.
+
+---
+
+## El ciclo cognitivo y la corrección
+
+Lo que sigue salió de reconstruir la noche del 13/10 escenario por escenario
+hasta que la EPA se sostuvo sin empujarla. No es una recomendación: es lo que
+quedó cuando se sacó todo lo que estaba puesto a mano.
+
+### C1 — Qué cura una necesidad
+
+Una sola cosa: **correcciones**. Y una corrección es un **zone pass de la
+variable observada hacia el punto de equilibrio**, causado por una acción.
+
+Su magnitud es la misma escala que la del ataque equivalente —`ι(severidad del
+cruce) · distancia de viabilidad`— con el signo invertido, y entra con la forma
+del release.
+
+**Prohíbe.** Que la corrección sea un factor que escala el evento abierto. `g`
+no cura: `g` cierra. Lo que mueve el valor de la necesidad es un desplazamiento
+propio, simétrico al golpe. Prohíbe también que una corrección exista sin una
+acción que la haya causado: un cruce hacia el equilibrio que nadie provocó es el
+mundo curándose solo, y eso ya lo prohíbe A3.
+
+### C2 — Un zone pass es discreto
+
+La **consecuencia exitosa** de una acción —la que cumple A3— es un zone pass, y
+un zone pass cruza **una banda**: rojo→ámbar, ámbar→amarillo, amarillo→verde.
+Para llegar a verde desde rojo hacen falta tres acciones exitosas, cada una con
+su release.
+
+**Prohíbe.** Que una acción lleve la necesidad de donde esté hasta verde de un
+saque. Eso no es un zone pass, es teletransporte.
+
+### C3 — Qué apaga el bucle cognitivo
+
+Correcciones que lleven la **necesidad** a su zona verde. Nada más.
+
+**Prohíbe.** Un breaker por iteraciones. Un cierre porque la variable observada
+volvió mientras la necesidad sigue en ámbar —restaurar la variable es la
+prioridad, no el criterio de cierre—. Y descartar un wake por no encontrar una
+perturbación abierta: el micro-objetivo es la necesidad, que puede estar lejos
+de su punto de equilibrio por pura deriva, y eso también hay que atenderlo.
+
+### C4 — La dinámica basal se pausa
+
+La basal es lo que le pasa a la necesidad cuando **no** hay perturbación ni
+acción. Mientras transcurre el ADSR de un evento, o mientras hay un bucle
+cognitivo abierto sobre esa necesidad, la basal no corre: ni deriva, ni resorte,
+ni carga alostática, y la velocidad queda congelada donde estaba, así que al
+reanudar sigue de ahí y no desde cero.
+
+**Prohíbe.** Colgar la pausa de que el evento siga *abierto*. El sustain no es
+el evento transcurriendo: es el desplazamiento que quedó, y puede quedar para
+siempre si nadie corrige. Una perturbación sin cerrar congelaría la necesidad
+hasta el final de la ventana, y la noche sobreviviría por estar en pausa.
+
+### C5 — La curva del portón
+
+`h = tasa_base · e^(ganancia · p)`, con la ganancia despejada de una condición
+sobre las bandas, no elegida: **en el borde ámbar→rojo despertar tiene que ser
+casi seguro**. Con `p = amberMax`, `P(despertar en un pulso) ≈ 0,99`.
+
+Para las bandas del contrato del 13/10 (`greenMax 0,33`, `yellowMax 0,55`,
+`amberMax 0,80`) y `tasa_base = 0,25/h`, eso da **ganancia 8,76** y la curva:
+
+| p | tasa | P(despertar en 1 min) |
+|---|---|---|
+| 0,00 | 0,2/h | 0,4 % |
+| 0,33 | 4,5/h | 7,2 % |
+| 0,55 | 30,9/h | 40,3 % |
+| 0,80 | 276,3/h | 99,0 % |
+| 1,00 | 1593,2/h | 100 % |
+
+Así A2 sigue siendo probabilístico —la urgencia ordena y prioriza, que es lo que
+un disparo determinista pierde— y a la vez es casi determinista donde importa.
+
+**Prohíbe.** Un tope de tasa que vuelva la condición inalcanzable. Y una rama de
+TTD que infle la tasa en todos lados: medida sobre una ventana real domina el
+100 % de los pulsos, el agente quiere despertar siempre, y lo que termina
+espaciando las activaciones es el refractario. La figura se ve bien por el
+motivo equivocado.

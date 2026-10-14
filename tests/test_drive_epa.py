@@ -107,8 +107,8 @@ class TestCanonicalEvents:
         assert len(events) == 1
         e = events[0]
         assert e["drive"] == "hunger"
-        assert e["zone"] == "equilibrium"
-        assert e["side"] == "equilibrium"
+        assert e["zone"] == "verde"
+        assert e["side"] == "verde"
         assert "membership" in e
 
     def test_zone_changed_deficit_is_low_side(self):
@@ -117,7 +117,7 @@ class TestCanonicalEvents:
         events = []
         d.on(ZONE_CHANGED, lambda p: events.append(p))
         d.update(tick=0)
-        assert events[0]["zone"] == "critical_deficit"
+        assert events[0]["zone"] == "deficit_rojo"
         assert events[0]["side"] == "deficit"
 
     def test_satiated_event(self):

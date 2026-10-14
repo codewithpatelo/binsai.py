@@ -172,6 +172,18 @@ class ObservedVariable(EventEmitter):
         self.window = window
         self.window_start = window_start
         self._p_fn = _pressure_fn(pressure_fn)
+        # Dos dimensiones es DOS: nivel y ritmo. Una variable observada que sólo
+        # declara nivel no puede anticipar nada — ve que quedan 20 GB y no ve
+        # que se están yendo a 20 GB/min, así que la violación le llega como
+        # sorpresa. `pacing_mode="none"` apaga la segunda dimensión y por eso
+        # no es un valor admisible: si el contrato no sabe el ritmo acordado,
+        # el contrato está incompleto y hay que arreglar el contrato.
+        if pacing_mode not in ("ratio", "time_to_violation"):
+            raise ValueError(
+                f"{name}: pacing_mode={pacing_mode!r}. Una variable observada tiene dos "
+                f"dimensiones, nivel y ritmo; 'none' declara una sola. Usá 'ratio' "
+                f"(ritmo observado contra ritmo acordado) o 'time_to_violation' "
+                f"(cuánto falta para cruzar al ritmo actual).")
         self.pacing_mode = pacing_mode
         self.recovery_time = recovery_time
         self.reaction_time = reaction_time
@@ -275,7 +287,7 @@ class ObservedVariable(EventEmitter):
             raise ValueError(f"observed variable '{self.name}' has no contract levels")
         have = [b for b in self._BANDAS[:4] if self.levels.get(b) is not None]
         sube = self.levels[have[0]] < self.levels[have[-1]]     # verde < rojo: techo
-        peor = "equilibrium"
+        peor = "verde"
         for b in have:
             lim = self.levels[b]
             if (value >= lim) if sube else (value <= lim):
@@ -283,13 +295,12 @@ class ObservedVariable(EventEmitter):
         muerte = self.levels.get("muerte")
         if muerte is not None and ((value >= muerte) if sube else (value <= muerte)):
             return "muerte"
-        return {"verde": "equilibrium", "amarillo": "moderate", "ambar": "high",
-                "rojo": "critical", "equilibrium": "equilibrium"}[peor]
+        return peor
 
     def level_severity(self, value: float) -> int:
         """0 green · 1 yellow · 2 amber · 3 red · 4 past the declared death level."""
-        return {"equilibrium": 0, "moderate": 1, "high": 2,
-                "critical": 3, "muerte": 4}[self.level_zone(value)]
+        return {"verde": 0, "amarillo": 1, "ambar": 2,
+                "rojo": 3, "muerte": 4}[self.level_zone(value)]
 
     # ── Observation intake ─────────────────────────────────────────────────
 
@@ -442,17 +453,17 @@ class ObservedVariable(EventEmitter):
 
     @property
     def side(self) -> str:
-        """Algedonic side of the last observation: 'deficit' | 'superavit' | 'equilibrium'."""
+        """Algedonic side of the last observation: 'deficit' | 'superavit' | 'verde'."""
         if not self._samples:
-            return "equilibrium"
+            return "verde"
         z = self._signed_deviation(self._samples[-1][1])
         if self.kind == VariableKind.TARGET:
-            return "deficit" if z < -0.05 else "equilibrium"   # behind goal = deficit
+            return "deficit" if z < -0.05 else "verde"   # behind goal = deficit
         if z > 0.05:
             return "deficit"
         if z < -0.05:
             return "superavit"
-        return "equilibrium"
+        return "verde"
 
     # ── Level pressure ─────────────────────────────────────────────────────
 
@@ -577,17 +588,17 @@ class ObservedVariable(EventEmitter):
     def pressure_zone(self, p: float) -> str:
         """Map pressure magnitude to a canonical algedonic zone name."""
         side = self.side
-        if side == "equilibrium" and p < self.zone_thresholds[0]:
-            return "equilibrium"
+        if side == "verde" and p < self.zone_thresholds[0]:
+            return "verde"
         suffix = "deficit" if side == "deficit" else "superavit"
         lo, mid, hi = self.zone_thresholds
         if p >= hi:
-            return f"critical_{suffix}"
+            return f"{suffix}_rojo"
         if p >= mid:
-            return f"high_{suffix}"
+            return f"{suffix}_ambar"
         if p >= lo:
-            return f"moderate_{suffix}"
-        return "equilibrium"
+            return f"{suffix}_amarillo"
+        return "verde"
 
     def _settled_zone(self, p: float, last: Optional[str]) -> str:
         """A2.2 — la banda, con deadband a la salida.
@@ -627,12 +638,12 @@ class ObservedVariable(EventEmitter):
 
     @staticmethod
     def _severity(zone: Optional[str]) -> int:
-        """Order of algedonic bands: equilibrium < moderate < high < critical."""
-        if not zone or zone == "equilibrium":
+        """Orden canónico de las bandas: verde < amarillo < ámbar < rojo."""
+        if not zone or zone == "verde":
             return 0
-        if "moderate" in zone:
+        if "amarillo" in zone:
             return 1
-        if "high" in zone:
+        if "ambar" in zone:
             return 2
         return 3
 

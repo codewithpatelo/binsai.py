@@ -97,10 +97,10 @@ class TestSignedDrift:
         this drive's set_point=0.30."""
         from binsai.drives import ZoneSpec
         d = make_drive(value=0.20, lambda_rate=0.005, kappa=0.05, zones=[
-            ZoneSpec("critical_deficit",   0.05, 0.10),
-            ZoneSpec("equilibrium",        0.30, 0.10),
-            ZoneSpec("moderate_superavit", 0.45, 0.10),
-            ZoneSpec("critical_superavit", 0.90, 0.10),
+            ZoneSpec("deficit_rojo",   0.05, 0.10),
+            ZoneSpec("verde",        0.30, 0.10),
+            ZoneSpec("superavit_amarillo", 0.45, 0.10),
+            ZoneSpec("superavit_rojo", 0.90, 0.10),
         ])
         for t in range(200):
             d.update(tick=t)

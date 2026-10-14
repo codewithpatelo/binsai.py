@@ -2,7 +2,7 @@
 import math
 import pytest
 
-from binsai.drives import Drive
+from binsai.drives import Drive, ZoneSpec
 from binsai.observed import ObservedVariable
 from binsai.replay import Ventana, Escenario
 
@@ -22,7 +22,7 @@ def necesidad(nombre, direccion, sp=0.5, margen=1/3):
 def ventana(series=None, **kw):
     met, ser = necesidad("metabolico", +1.0), necesidad("servicio", -1.0)
     var = ObservedVariable("gasto", "band", (0.0, 1.0), set_point=0.0,
-                           pacing_mode="none", monotonic=False, window=H,
+                           pacing_mode="time_to_violation", monotonic=False, window=H,
                            levels={"amarillo": 10, "ambar": 25, "rojo": 50},
                            hemisphere="deficit")
     s = series if series is not None else [0.0]*PULSOS
@@ -53,10 +53,15 @@ def test_a3_sin_agente_no_hay_un_solo_release():
     assert r.releases == 0, "ningún evento se cierra porque no hay agente"
 
 
-def test_a2_un_wake_sin_micro_objetivo_se_descarta_y_se_cuenta():
+def test_el_micro_objetivo_es_la_necesidad_no_la_variable_observada():
+    """Un wake nunca se descarta: el micro-objetivo es la necesidad.
+
+    Exigir una perturbación abierta para abrir un ciclo deja la deriva basal
+    fuera del alcance del agente, que es justamente lo que A4 dice que mata.
+    """
     r = ventana().correr(Escenario.CON_AGENTE, semilla=3)
-    assert r.releases == 0
-    assert all(c.variable for c in r.ciclos), "todo ciclo tiene micro-objetivo"
+    assert not r.descartados, "ningún wake se descarta"
+    assert all(c.necesidad for c in r.ciclos), "todo ciclo atiende una necesidad"
 
 
 def test_el_ciclo_cognitivo_es_un_intervalo_y_no_se_solapa():
@@ -88,7 +93,7 @@ def test_las_series_tienen_que_medir_lo_mismo():
     with pytest.raises(ValueError, match="largos distintos"):
         met = necesidad("m", +1.0)
         var = ObservedVariable("a", "band", (0.0, 1.0), set_point=0.0,
-                               pacing_mode="none", window=H)
+                               pacing_mode="time_to_violation", window=H)
         Ventana(horizonte=H, dt=DT, necesidades=[met],
                 variables={"a": var, "b": var},
                 series={"a": [0.0]*10, "b": [0.0]*11}, dueño={"a": "m", "b": "m"})
@@ -136,19 +141,85 @@ def test_el_eje_es_la_ventana_entera_no_la_ultima_muestra():
         "sin tmax la serie ocupa todo el ancho y parece que llegó al final"
 
 
-def test_la_marca_del_resorte_no_depende_del_reloj():
-    """κ está en 1/tiempo²: con un reloj del mundo tapaba la tira entera."""
+def test_la_figura_no_dibuja_marcas_que_nadie_pidio():
+    """La marca del resorte no está: era una marca sin leyenda sobre la tira."""
     from binsai.viz import timeline_svg
-    import re
-    alturas = []
-    for dt in (1.0, 1/60):
-        d = Drive(name="m", set_point=0.5, value=0.5, spring="magnetic-2nd",
-                  lambda_rate=0.001, basal_direction="recover", dt=dt,
-                  horizon=H, viability=(0.5-1/3, 0.5+1/3))
-        d.calibrate(mortality=0.6)
-        d.update(tick=1)
-        s = timeline_svg([d], width=900, strip_height=180)
-        m = re.search(r'y1="([\d.]+)" y2="([\d.]+)" stroke="#BC8CFF"', s)
-        alturas.append(abs(float(m.group(2)) - float(m.group(1))))
-    assert alturas[0] == pytest.approx(alturas[1]), "la marca cambiaba con el pulso"
-    assert all(a < 180 for a in alturas), "y no puede ser más alta que la tira"
+    d = Drive(name="m", set_point=0.5, value=0.5, spring="magnetic-2nd",
+              lambda_rate=0.001, basal_direction="recover", dt=1/60,
+              horizon=H, viability=(0.5-1/3, 0.5+1/3))
+    d.calibrate(mortality=0.6)
+    d.update(tick=1)
+    s = timeline_svg([d], width=900, strip_height=180)
+    assert "#BC8CFF" not in s and "#6E49CB" not in s
+
+
+# ── el canon 5D: lo que la noche del 13/10 dejó fijado ────────────────────────
+
+def test_5d_la_basal_se_pausa_durante_el_adsr_o_el_bucle():
+    """Basal es lo que le pasa a la necesidad cuando NO hay perturbación ni acción.
+
+    Mientras transcurre el ADSR de un evento, o mientras el agente tiene un
+    bucle cognitivo abierto sobre esa necesidad, la basal no corre: ni deriva,
+    ni resorte, ni carga alostática, y la velocidad queda congelada donde
+    estaba. Colgar la pausa del flag `open` en vez del ADSR congela la
+    necesidad para siempre cuando nadie corrige.
+    """
+    d = Drive(name="m", set_point=0.5, value=0.5, spring="magnetic-2nd",
+              lambda_rate=0.05, basal_direction="decay", dt=DT, horizon=H,
+              viability=(0.5 - 1/3, 0.5 + 1/3))
+    d.calibrate(mortality=0.6)
+    p = d.open_perturbation(1, 3, -1.0)
+    assert p.en_adsr(2), "el ataque transcurre"
+    fin = int((p.envelope.rise + p.envelope.decay) * H / DT) + 5
+    assert not p.en_adsr(1 + fin), "el sustain NO es el evento transcurriendo"
+    assert p.open, "y sigue abierta: nadie la corrigió"
+
+    # la pausa, sobre una necesidad sin eventos: el valor no se mueve solo
+    q = Drive(name="q", set_point=0.5, value=0.5, spring="magnetic-2nd",
+              lambda_rate=0.05, basal_direction="decay", dt=DT, horizon=H,
+              viability=(0.5 - 1/3, 0.5 + 1/3))
+    q.calibrate(mortality=0.6)
+    q.basal_suspendida = True
+    antes = q.value
+    for t in range(1, 60):
+        q.update(tick=t)
+    assert q.value == pytest.approx(antes, abs=1e-12), "con la basal en pausa no deriva"
+    q.basal_suspendida = False
+    for t in range(60, 80):
+        q.update(tick=t)
+    assert q.value != pytest.approx(antes, abs=1e-9), "y al reanudar vuelve a correr"
+
+
+def test_5d_una_correccion_es_un_zone_pass_de_una_banda():
+    """La consecuencia exitosa de una acción es un zone pass, y es discreto."""
+    d = Drive(name="m", set_point=0.5, value=0.5, spring="magnetic-2nd",
+              lambda_rate=0.05, basal_direction="decay", dt=DT, horizon=H,
+              viability=(0.5 - 1/3, 0.5 + 1/3),
+              zones=[ZoneSpec("verde", 0.5, 0.04),
+                     ZoneSpec("deficit_amarillo", 0.39, 0.04),
+                     ZoneSpec("deficit_ambar", 0.28, 0.04),
+                     ZoneSpec("deficit_rojo", 0.17, 0.04)])
+    d.value = 0.20                                  # en rojo
+    paso = d.distancia_a_banda_siguiente()
+    assert paso > 0, "hacia el punto de equilibrio"
+    destino = d.value + paso
+    assert destino < 0.5, "no se teletransporta a verde de un saque"
+    assert d.zona_de(destino - 1e-4) != "verde", "cruza una banda, no todas"
+    assert destino > d.value and destino <= 0.28 + 1e-6, "llega al borde de la siguiente"
+
+
+def test_5d_el_bucle_cognitivo_solo_cierra_con_la_necesidad_en_verde():
+    """No hay breaker por iteraciones ni wakes descartados."""
+    v = ventana()
+    r = v.correr(Escenario.CONTRAFACTICO, semilla=11, basal_en_bucle=False)
+    assert not r.descartados
+    for c in r.ciclos:
+        assert c.desenlace in ("resuelto", "abierto")
+        assert c.desenlace != "breaker"
+
+
+def test_5d_sin_agente_no_hay_una_sola_correccion():
+    """A3: el mundo no cura. Una corrección la cobra una acción o no existe."""
+    for esc in (Escenario.TODO, Escenario.SOLO_PERTURBACIONES):
+        r = ventana().correr(esc)
+        assert all(not d._curas for d in r.necesidades)

@@ -89,18 +89,18 @@ class TestDriveSemantics:
 
 
 class TestZoneSystem:
-    def test_zone_at_critical_deficit(self):
+    def test_zone_at_deficit_rojo(self):
         """Critical deficit sits at LOW x under the satisfaction convention."""
         d = make_metabolic(0.20)
-        assert d.get_zone() == "critical_deficit"
+        assert d.get_zone() == "deficit_rojo"
 
     def test_zone_at_equilibrium(self):
         d = make_metabolic(0.70)
-        assert d.get_zone() == "equilibrium"
+        assert d.get_zone() == "verde"
 
-    def test_zone_at_critical_superavit(self):
+    def test_zone_at_superavit_rojo(self):
         d = make_metabolic(0.95)
-        assert d.get_zone() == "critical_superavit"
+        assert d.get_zone() == "superavit_rojo"
 
     def test_zone_memberships_sum_to_one(self):
         for val in [0.05, 0.20, 0.45, 0.60, 0.70, 0.87, 0.95]:
@@ -111,18 +111,18 @@ class TestZoneSystem:
     def test_zone_memberships_keys(self):
         d = make_metabolic(0.70)
         assert set(d.zone_memberships().keys()) == {
-            "critical_superavit", "high_superavit", "moderate_superavit",
-            "equilibrium", "moderate_deficit", "high_deficit", "critical_deficit",
+            "superavit_rojo", "superavit_ambar", "superavit_amarillo",
+            "verde", "deficit_amarillo", "deficit_ambar", "deficit_rojo",
         }
 
     def test_custom_zones_other_convention(self):
         """Users can still model a deficit-magnitude axis: custom zones put
         deficit names at HIGH x and get_zone/side resolve correctly."""
         d = Drive(name="hunger", value=0.85, set_point=0.30, zones=[
-            ZoneSpec("equilibrium", 0.30, 0.10),
-            ZoneSpec("critical_deficit", 0.85, 0.12),
+            ZoneSpec("verde", 0.30, 0.10),
+            ZoneSpec("deficit_rojo", 0.85, 0.12),
         ])
-        assert d.get_zone() == "critical_deficit"
+        assert d.get_zone() == "deficit_rojo"
 
 
 class TestDrivesCollection:

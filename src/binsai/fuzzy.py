@@ -34,17 +34,17 @@ from __future__ import annotations
 import math
 import random
 
-ZONES = ("critical_superavit", "high_superavit", "moderate_superavit",
-         "equilibrium", "moderate_deficit", "high_deficit", "critical_deficit")
+ZONES = ("superavit_rojo", "superavit_ambar", "superavit_amarillo",
+         "verde", "deficit_amarillo", "deficit_ambar", "deficit_rojo")
 
 ZONE_CENTERS: dict[str, float] = {
-    "critical_deficit":     0.20,
-    "high_deficit":         0.45,
-    "moderate_deficit":     0.60,
-    "equilibrium":          0.70,
-    "moderate_superavit":   0.78,
-    "high_superavit":       0.87,
-    "critical_superavit":   0.95,
+    "deficit_rojo":     0.20,
+    "deficit_ambar":         0.45,
+    "deficit_amarillo":     0.60,
+    "verde":          0.70,
+    "superavit_amarillo":   0.78,
+    "superavit_ambar":       0.87,
+    "superavit_rojo":   0.95,
 }
 
 ZONE_WIDTH = 0.08  # Gaussian σ — narrower for 7 zones
