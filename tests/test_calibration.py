@@ -323,3 +323,27 @@ def test_a2_in_the_agent_gate():
         d.observed[0].observe(1.0, 104.0)        # saturada y sin retorno
     from binsai.fuzzy import homeostatic_error
     assert max(homeostatic_error(d) for d in agent.drives) == 0.0
+
+
+def test_a2_1_aggregation_is_max_not_mean():
+    """A2.1: una necesidad muerta y otra en equilibrio no promedian a media presión."""
+    from binsai.fuzzy import homeostatic_error
+    viva, muerta = make(+1.0, name="viva"), make(-1.0, name="muerta")
+    muerta.value = muerta.viability[0]                 # cruzó su límite
+    assert homeostatic_error(viva) == 0.0
+    assert homeostatic_error(muerta) >= 1.0
+    señal = max(homeostatic_error(d) for d in (viva, muerta))
+    assert señal >= 1.0, "el máximo no se diluye con la necesidad tranquila"
+    assert señal > sum(homeostatic_error(d) for d in (viva, muerta))/2
+
+
+def test_a2_the_impulse_is_symmetric_in_the_hemispheres():
+    """A7 borrador: lo único cerrado es que el superávit activa igual que el déficit."""
+    from binsai.fuzzy import homeostatic_error
+    d = make()
+    margen = d.viability[1] - d.set_point
+    d.value = d.set_point + 0.4*margen
+    superavit = homeostatic_error(d)
+    d.value = d.set_point - 0.4*(d.set_point - d.viability[0])
+    deficit = homeostatic_error(d)
+    assert superavit == pytest.approx(deficit), "el impulso no puede mirar un solo hemisferio"
