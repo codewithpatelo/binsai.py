@@ -37,8 +37,13 @@ minutos, `h = 3`/hora.
 h = h_pressure·p + h_demand·𝟙{demanda} + h_backlog·(tareas pendientes)
 ```
 
-- `p` es la presión del drive — la misma señal `max(nivel, ritmo, autónoma)`
-  que la EPA ya computa. En equilibrio `p ≈ 0` → `h ≈ 0` → el agente descansa.
+- `p` es el **error homeostático del drive**, `|x − x*| / margen`
+  (`fuzzy.homeostatic_error`). En el set-point `p = 0` → `h = 0` → el agente
+  descansa, que es A6. **No** es `max(nivel, ritmo, autónoma)`: esa señal mezcla
+  el estado del mundo con el del agente, y una variable saturada —un techo ya
+  cruzado, que no vuelve— dejaría la tasa en su máximo toda la ventana con el
+  drive en equilibrio. Las variables observadas entran al drive por sus eventos
+  de perturbación, nunca por la tasa. Ver docs/AXIOMAS.md A2.
 - Demanda pendiente suma `h_demand` (default 4/unidad → espera media ≈ 0.25
   unidades — respuesta casi inmediata).
 - Backlog de tareas planificadas suma `h_backlog` c/u.

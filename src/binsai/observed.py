@@ -157,6 +157,7 @@ class ObservedVariable(EventEmitter):
         valid_range:      tuple[Optional[float], Optional[float]] = (None, None),
         source:           str             = "",
         zone_thresholds:  tuple[float, float, float] = (0.15, 0.40, 0.70),
+        levels:           Optional[dict]  = None,   # A6 §contrato: umbrales EN UNIDADES
         impulse_iota:     tuple[float, float, float] = (0.02, 0.06, 0.18),  # ι₁ ι₂ ι₃
         impulse_zeta:     float           = 0.6,   # ζ — improving satiates less
     ) -> None:
@@ -183,6 +184,9 @@ class ObservedVariable(EventEmitter):
         self.valid_range = valid_range
         self.source = source
         self.zone_thresholds = zone_thresholds
+        self.levels = dict(levels) if levels else None
+        if self.levels:
+            self._check_levels()
         self.impulse_iota = impulse_iota
         self.impulse_zeta = impulse_zeta
 
@@ -198,6 +202,58 @@ class ObservedVariable(EventEmitter):
         self.last_pace_pressure:  Optional[float] = None
         self.last_rate:           Optional[float] = None
         self.last_coverage:       float           = 0.0
+
+    # ── Contract levels (docs/AXIOMAS.md — "Qué reporta una variable") ─────
+
+    _BANDAS = ("verde", "amarillo", "ambar", "rojo", "muerte")
+
+    def _check_levels(self) -> None:
+        """The contract declares thresholds in the variable's own units.
+
+        Not fractions, not ratios: `nivel_rojo: 50` means fifty of whatever
+        this variable counts. Whatever arithmetic produced that number — a
+        budget per committed ticket, a seasonal quota — belongs to whoever
+        writes the contract. A variable that divides by a ceiling of its own
+        invention mixes two responsibilities and makes a dynamic contract
+        impossible to declare without touching code.
+        """
+        unknown = set(self.levels) - set(self._BANDAS)
+        if unknown:
+            raise ValueError(
+                f"observed variable '{self.name}': unknown contract levels "
+                f"{sorted(unknown)}; expected a subset of {list(self._BANDAS)}")
+        have = [b for b in self._BANDAS[:4] if self.levels.get(b) is not None]
+        if len(have) < 2:
+            raise ValueError(
+                f"observed variable '{self.name}': declare at least two of "
+                f"{list(self._BANDAS[:4])} so the bands have a direction")
+        vals = [self.levels[b] for b in have]
+        if vals != sorted(vals) and vals != sorted(vals, reverse=True):
+            raise ValueError(
+                f"observed variable '{self.name}': contract levels must be "
+                f"monotonic from green to red, got {dict(zip(have, vals))}")
+
+    def level_zone(self, value: float) -> str:
+        """The algedonic band of `value`, read straight off the contract."""
+        if not self.levels:
+            raise ValueError(f"observed variable '{self.name}' has no contract levels")
+        have = [b for b in self._BANDAS[:4] if self.levels.get(b) is not None]
+        sube = self.levels[have[0]] < self.levels[have[-1]]     # verde < rojo: techo
+        peor = "equilibrium"
+        for b in have:
+            lim = self.levels[b]
+            if (value >= lim) if sube else (value <= lim):
+                peor = b
+        muerte = self.levels.get("muerte")
+        if muerte is not None and ((value >= muerte) if sube else (value <= muerte)):
+            return "muerte"
+        return {"verde": "equilibrium", "amarillo": "moderate", "ambar": "high",
+                "rojo": "critical", "equilibrium": "equilibrium"}[peor]
+
+    def level_severity(self, value: float) -> int:
+        """0 green · 1 yellow · 2 amber · 3 red · 4 past the declared death level."""
+        return {"equilibrium": 0, "moderate": 1, "high": 2,
+                "critical": 3, "muerte": 4}[self.level_zone(value)]
 
     # ── Observation intake ─────────────────────────────────────────────────
 

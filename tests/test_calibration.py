@@ -265,3 +265,61 @@ def test_the_envelope_is_scale_free_too():
         return [trace[int(f * (horizon - 1))] for f in (0.02, 0.05, 0.2, 0.6, 0.95)]
     for a, b in zip(shape(690.0), shape(6900.0)):
         assert a == pytest.approx(b, rel=0.01)
+
+
+# ── los axiomas, como tests ──────────────────────────────────────────────────
+
+def test_a2_the_rate_reads_the_drive_not_its_sensors():
+    """A2: una variable saturada no puede fijar la tasa con el drive en equilibrio."""
+    from binsai.fuzzy import homeostatic_error
+    from binsai.observed import ObservedVariable
+
+    d = make()
+    techo = ObservedVariable("gasto", "budget", 50.0, window=11.5,
+                             levels={"verde": 5, "amarillo": 10, "ambar": 25, "rojo": 50})
+    d.observed = [techo]
+    techo.observe(1.0, 104.0)                    # el gasto duplicó su techo y no vuelve
+    assert techo.level_zone(104.0) == "critical"
+    assert d.value == d.set_point
+    assert homeostatic_error(d) == 0.0, "en el set-point la tasa es cero, mire lo que mire el sensor"
+
+
+def test_a6_perfect_equilibrium_has_no_impulse():
+    from binsai.fuzzy import activation_hazard, homeostatic_error
+    d = make()
+    assert activation_hazard(homeostatic_error(d)) == 0.0
+    d.value = d.set_point + 0.5 * (d.viability[1] - d.set_point)
+    assert activation_hazard(homeostatic_error(d)) > 0.0
+
+
+def test_contract_levels_are_units_not_ratios():
+    from binsai.observed import ObservedVariable
+    piso = ObservedVariable("ram_libre", "floor", 2.0, window=11.5,
+                            levels={"verde": 8, "amarillo": 4, "ambar": 3,
+                                    "rojo": 2, "muerte": 1})
+    assert [piso.level_severity(x) for x in (9, 5, 3.5, 2.5, 2.0, 0.9)] == [0, 0, 1, 2, 3, 4]
+    techo = ObservedVariable("usd", "budget", 50.0, window=11.5,
+                             levels={"amarillo": 10, "ambar": 25, "rojo": 50})
+    assert [techo.level_severity(x) for x in (0, 20, 49, 50, 104)] == [0, 1, 2, 3, 3]
+
+
+def test_contract_levels_must_be_monotonic():
+    from binsai.observed import ObservedVariable
+    with pytest.raises(ValueError, match="monotonic"):
+        ObservedVariable("x", "budget", 50.0, window=1.0,
+                         levels={"amarillo": 30, "ambar": 10, "rojo": 50})
+    with pytest.raises(ValueError, match="at least two"):
+        ObservedVariable("x", "budget", 50.0, window=1.0, levels={"rojo": 50})
+
+
+def test_a2_in_the_agent_gate():
+    """El portón de activación del agente lee desvíos, no presiones."""
+    from binsai.observed import ObservedVariable
+    agent = BinsaiAgent(name="probe")
+    for d in agent.drives:
+        d.value = d.set_point
+        d.observed = [ObservedVariable(f"techo_{d.name}", "budget", 50.0, window=11.5,
+                                       levels={"amarillo": 10, "ambar": 25, "rojo": 50})]
+        d.observed[0].observe(1.0, 104.0)        # saturada y sin retorno
+    from binsai.fuzzy import homeostatic_error
+    assert max(homeostatic_error(d) for d in agent.drives) == 0.0

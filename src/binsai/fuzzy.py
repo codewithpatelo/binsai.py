@@ -184,14 +184,28 @@ def activation_probability(hazard: float, dt: float = 1.0) -> float:
     return -math.expm1(-hazard * dt)
 
 
+def homeostatic_error(drive) -> float:
+    """|x − x*| / margen, en [0,1] — la única señal que A2 admite para la tasa.
+
+    docs/AXIOMAS.md A2: la probabilidad de activación es proporcional al desvío
+    del drive respecto de su set-point. No a la presión de sus variables
+    observadas: una variable saturada —un techo ya cruzado— dejaría la tasa en
+    su máximo con el drive en equilibrio, que es lo que A2 prohíbe.
+    """
+    lo_v, hi_v = drive.viability
+    d = drive.value - drive.set_point
+    margin = abs((lo_v if d < 0 else hi_v) - drive.set_point) or 1e-9
+    return min(1.0, abs(d) / margin)
+
+
 def activation_hazard(pressure: float, *, has_demand: bool = False,
                       pending_labels: int = 0,
                       h_pressure: float = 1.5, h_demand: float = 4.0,
                       h_backlog: float = 0.3) -> float:
     """Activation rate h (activations per unit time).
 
-    Driven by drive pressure p ∈ [0,1] — the same max(level, pace, autonomous)
-    signal the EPA already computes — plus explicit boosts:
+    Driven by the drive's homeostatic error p ∈ [0,1] — see
+    :func:`homeostatic_error` and docs/AXIOMAS.md A2 — plus explicit boosts:
         has_demand:     h_demand   — pending work raises the rate sharply
                         (default 4/unit → mean wait ≈ 0.25 units ≈ fast reply)
         pending_labels: h_backlog each — planned work nudges proact

@@ -31,7 +31,8 @@ from .events import (EventEmitter, ACTIVATION_DRAW, ACTIVATION_FAILED,
                      CONTRACT_VERIFIED, CONTRACT_REINJECTED)
 from .lifecycle import FIPAState, LifecycleManager
 from .fuzzy import (compute_action_distribution, sample_action,
-                    activation_probability, activation_hazard)
+                    activation_probability, activation_hazard,
+                    homeostatic_error)
 from .actions import (
     ActionExecution,
     ActionKind,
@@ -552,7 +553,13 @@ class BinsaiAgent(EventEmitter):
         dt = getattr(primary, "dt", 1.0) or 1.0
         if t * dt < self._refractory_until:
             return "idle"
-        system_pressure = self.drives.pressure
+        # A2 (docs/AXIOMAS.md): el impulso es proporcional al ERROR HOMEOSTATICO.
+        # Sin acoplamiento cada drive puede activar al agente por su cuenta, asi
+        # que la señal del sistema es el maximo de los desvios; con acoplamiento
+        # seria la agregacion ponderada por W. `drives.pressure` no sirve aca:
+        # mezcla el estado del mundo con el del agente, y una variable saturada
+        # dejaria la tasa en su maximo con todos los drives en equilibrio.
+        system_pressure = max((homeostatic_error(d) for d in self.drives), default=0.0)
         h = activation_hazard(
             system_pressure,
             has_demand=has_demand,
