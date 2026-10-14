@@ -11,7 +11,8 @@ from .agent  import BinsaiAgent, Position
 from .drives import (
     Drives, Drive, Stratum, ZoneSpec, Perturbation, PerturbationEnvelope,
 )
-from .fuzzy  import compute_action_distribution, zone_memberships
+from .fuzzy  import compute_action_distribution, zone_memberships, homeostatic_error
+from .replay import Ventana, Escenario, Resultado, Ciclo
 from .lifecycle import FIPAState, LifecycleManager
 from .actions import ActionKind, RegulatoryBudgets, ExpectedEffect
 from .acl import ACLMessage, Performative, Mailbox
@@ -41,6 +42,7 @@ from .viability_space import (
 from .world.world import World, WorldConfig, AgentConfig, AgentFrame, WorldFrame
 
 __all__ = [
+    "Ventana", "Escenario", "Resultado", "Ciclo", "homeostatic_error",
     # Calibration (EPA v2.1)
     "Perturbation", "PerturbationEnvelope", "ShapeRatios", "Calibration",
     "calibrate_drive", "calibrate_drive_perturbation", "basal_time_to_death",
