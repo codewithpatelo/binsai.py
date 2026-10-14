@@ -80,6 +80,9 @@ class Resultado:
     quien: Optional[str]
     series: dict                            # necesidad -> [(tick, valor)]
     eventos: dict                           # necesidad -> [Perturbation]
+    necesidades: list = field(default_factory=list)
+    pulsos: int = 0
+    dt: float = 1.0
     ciclos: list = field(default_factory=list)
     descartados: list = field(default_factory=list)   # sorteos sin micro-objetivo
     pulsos_con_accion: int = 0              # medido, no declarado
@@ -91,6 +94,24 @@ class Resultado:
     @property
     def n_eventos(self) -> int:
         return sum(len(ps) for ps in self.eventos.values())
+
+    def dibujar(self, **kw) -> str:
+        """El artefacto canónico de esta corrida, con todo lo que hay que ver.
+
+        Los ciclos cognitivos como intervalos, los wakes descartados, la muerte
+        griseando lo posterior, y el eje fijado a la ventana entera para que una
+        necesidad que murió a mitad de camino no parezca haber llegado.
+        """
+        from .viz import timeline_svg
+        ciclos: dict = {}
+        for c in self.ciclos:
+            ciclos.setdefault(c.necesidad, []).append(
+                (c.abre, c.cierra or c.abre + 1, c.desenlace))
+        kw.setdefault("tmax", self.pulsos)
+        return timeline_svg(self.necesidades, cycles=ciclos,
+                            discarded=self.descartados,
+                            death=None if self.muerte is None else int(round(self.muerte/self.dt)),
+                            **kw)
 
     def resumen(self) -> str:
         v = "llega al final" if self.muerte is None else f"muere {self.muerte:.2f} ({self.quien})"
@@ -151,7 +172,8 @@ class Ventana:
             d.dt, d.horizon = self.dt, self.horizonte
 
         r = random.Random(semilla)
-        res = Resultado(escenario=escenario, muerte=None, quien=None, series={}, eventos={})
+        res = Resultado(escenario=escenario, muerte=None, quien=None, series={}, eventos={},
+                        pulsos=self.pulsos, dt=self.dt)
         ciclo: Optional[Ciclo] = None
         refr = -1e9
         con_agente = escenario is Escenario.CON_AGENTE

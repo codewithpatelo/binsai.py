@@ -193,6 +193,8 @@ class ObservedVariable(EventEmitter):
         self.levels = dict(levels) if levels else None
         if self.levels:
             self._check_levels()
+            # los umbrales de banda salen de los mismos niveles declarados
+            self.zone_thresholds = self.level_thresholds_from_levels()
         self.impulse_iota = impulse_iota
         self.impulse_zeta = impulse_zeta
 
@@ -240,6 +242,32 @@ class ObservedVariable(EventEmitter):
             raise ValueError(
                 f"observed variable '{self.name}': contract levels must be "
                 f"monotonic from green to red, got {dict(zip(have, vals))}")
+
+    def level_pressure_from_levels(self, value: float) -> float:
+        """Presión en [0,1] leída de los niveles del contrato.
+
+        0 en el borde de verde, 1 en `nivel_rojo`, y pasa de 1 más allá. Los
+        umbrales de banda salen de los mismos niveles, así que la zona que
+        reporta `pressure_zone` coincide exactamente con `level_zone`: no hay
+        dos tablas que se puedan desincronizar.
+
+        Acá no hay ningún cociente inventado: `value` y los niveles están en las
+        mismas unidades, y la única operación es dónde cae entre dos de ellos.
+        """
+        have = [b for b in self._BANDAS[:4] if self.levels.get(b) is not None]
+        verde, rojo = self.levels[have[0]], self.levels[have[-1]]
+        span = (rojo - verde) or 1e-9
+        return max(0.0, (value - verde) / span)
+
+    def level_thresholds_from_levels(self) -> tuple[float, float, float]:
+        """Los umbrales de banda, en presión, derivados de los mismos niveles."""
+        have = [b for b in self._BANDAS[:4] if self.levels.get(b) is not None]
+        verde, rojo = self.levels[have[0]], self.levels[have[-1]]
+        span = (rojo - verde) or 1e-9
+        def en_p(nombre, defecto):
+            v = self.levels.get(nombre)
+            return defecto if v is None else max(0.0, (v - verde) / span)
+        return (max(1e-6, en_p("amarillo", 0.33)), en_p("ambar", 0.66), 1.0)
 
     def level_zone(self, value: float) -> str:
         """The algedonic band of `value`, read straight off the contract."""
@@ -289,7 +317,11 @@ class ObservedVariable(EventEmitter):
                 self._drop_warned = True
         self._samples.append((float(t), float(value)))
 
-        p_level = self.level_pressure()
+        # Con niveles declarados, la presión de nivel sale del contrato: la
+        # variable compara contra `nivel_rojo` y nada más. Sin ellos, cae a la
+        # fórmula genérica por tipo de contrato.
+        p_level = (self.level_pressure_from_levels(value) if self.levels
+                   else self.level_pressure())
         p_pace  = self.pace_pressure(t)
         self.last_level_pressure = p_level
         self.last_pace_pressure  = p_pace
@@ -333,6 +365,10 @@ class ObservedVariable(EventEmitter):
         whose sensor stops reporting goes invalid and contributes no pressure —
         never assumed green.
         """
+        if self.levels and self._samples:
+            # El contrato declaró los niveles: la presión sale de ahí, sin
+            # ningún cociente que la variable se invente.
+            return self.level_pressure_from_levels(self._samples[-1][1])
         if not self._samples:
             self._set_invalid("no samples", t)
             return None
@@ -344,7 +380,11 @@ class ObservedVariable(EventEmitter):
                 )
                 return None
         self._invalid_reason = None
-        p_level = self.level_pressure()
+        # Con niveles declarados, la presión de nivel sale del contrato: la
+        # variable compara contra `nivel_rojo` y nada más. Sin ellos, cae a la
+        # fórmula genérica por tipo de contrato.
+        p_level = (self.level_pressure_from_levels(value) if self.levels
+                   else self.level_pressure())
         p_pace  = self.pace_pressure(t)
         self.last_level_pressure = p_level
         self.last_pace_pressure  = p_pace
@@ -600,7 +640,14 @@ class ObservedVariable(EventEmitter):
         """Ancho de la banda de entrada, en unidades de presión."""
         b = (0.0,) + tuple(self.zone_thresholds) + (1.0,)
         s = max(1, min(3, int(sev)))
-        return b[s + 1] - b[s]
+        ancho = b[s + 1] - b[s]
+        if ancho <= 1e-9:
+            # La banda roja no tiene borde superior en presión salvo que el
+            # contrato declare `nivel_muerte`. Sin él, vale lo que la anterior:
+            # un cruce no puede valer más que la banda en que entra, pero
+            # tampoco cero.
+            ancho = max(b[s] - b[s - 1], 1e-3)
+        return ancho
 
     def _check_perturbation(self, p: Optional[float], t: float, kind: str) -> None:
         """v2.1 §1 — emit Perturbed on a zone crossing of this family.

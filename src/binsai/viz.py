@@ -187,6 +187,10 @@ def _header_text(drive: Drive, lang: str) -> str:
     return f"{drive.name} — {label}: {arrow} {basal} · κ {drive.kappa:.2f}"
 
 
+_CICLO = {"resuelto": "#3FB950", "breaker": "#F85149",
+          "sin_accion_util": "#D29922", "abierto": "#58A6FF"}
+
+
 def _render_strip(
     drive: Drive,
     idx: int,
@@ -200,6 +204,9 @@ def _render_strip(
     th: dict,
     band_opacity: float,
     lang: str,
+    cycles: Sequence[tuple] = (),
+    discarded: Sequence[int] = (),
+    death: Optional[int] = None,
 ) -> str:
     g = []
 
@@ -260,13 +267,50 @@ def _render_strip(
         f'<line x1="{x0:.1f}" x2="{x0 + pw:.1f}" y1="{sp_y:.1f}" y2="{sp_y:.1f}" '
         f'stroke="{th["ink"]}" stroke-width="1.1" stroke-dasharray="7 5"/>'
     )
-    # κ: the elastic spring, drawn as a vertical tick on the set-point line
-    k_h = max(5.0, drive.kappa * ph * 0.9)
-    kx = x0 + pw - 10
+    # El resorte, dibujado como una marca vertical sobre la línea del punto de
+    # equilibrio. Su media altura es el ALCANCE `w`, que ya está en unidades de
+    # valor: κ está en 1/tiempo² y con un reloj del mundo (κ = 17,66 por hora²)
+    # daba 2182 px sobre una tira de 137. Y va al margen izquierdo, porque en el
+    # derecho se superpone con el final de la trayectoria y se lee como un evento.
+    k_h = max(4.0, min(0.45 * ph, drive.spring_reach * ph))
+    kx = x0 + 5
     g.append(
         f'<line x1="{kx:.1f}" x2="{kx:.1f}" y1="{sp_y - k_h:.1f}" y2="{sp_y + k_h:.1f}" '
         f'stroke="{th["kappa"]}" stroke-width="2.6"/>'
     )
+
+    # ── cognitive cycles: an activation is an interval, not a point ──
+    # Una activación es un ciclo cognitivo acotado: empieza cuando el agente
+    # despierta, la perturbación que lo despertó define el micro-objetivo, y
+    # termina cuando ese objetivo se resuelve, cuando ninguna acción segura
+    # puede ayudar, o cuando pega contra el breaker. Dibujarla como un punto
+    # pierde justamente lo que hay que mirar: cuánto duró y qué pasó adentro.
+    for c in cycles:
+        t0, t1 = int(c[0]), int(c[1])
+        estado = c[2] if len(c) > 2 else "abierto"
+        if death is not None:
+            if t0 >= death:
+                continue                 # un agente muerto no se activa
+            t1 = min(t1, death)
+        col = _CICLO.get(estado, _CICLO["abierto"])
+        xa = x0 + (t0 / tmax) * pw if tmax else x0
+        xb = x0 + (min(t1, tmax) / tmax) * pw if tmax else x0
+        g.append(f'<rect x="{xa:.1f}" y="{y0:.1f}" width="{max(1.2, xb - xa):.1f}" '
+                 f'height="{ph:.1f}" fill="{col}" fill-opacity="0.16"/>')
+        g.append(f'<line x1="{xa:.1f}" x2="{xa:.1f}" y1="{y0:.1f}" y2="{y0 + ph:.1f}" '
+                 f'stroke="{col}" stroke-width="1.5" stroke-opacity="0.9"/>')
+        g.append(f'<line x1="{xb:.1f}" x2="{xb:.1f}" y1="{y0:.1f}" y2="{y0 + ph:.1f}" '
+                 f'stroke="{col}" stroke-width="1.4" stroke-opacity="0.9" stroke-dasharray="3 3"/>')
+        g.append(f'<circle cx="{xa:.1f}" cy="{y0 + 4:.1f}" r="3" fill="{col}"/>')
+
+    # sorteos descartados: salieron, pero no había ninguna variable fuera de
+    # zona, así que no había micro-objetivo. Se registran (ARCHITECTURE §1.2).
+    for t in discarded:
+        if death is not None and t >= death:
+            continue
+        x = x0 + (int(t) / tmax) * pw if tmax else x0
+        g.append(f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{y0 + ph - 9:.1f}" y2="{y0 + ph:.1f}" '
+                 f'stroke="{th["ink"]}" stroke-width="1.2" stroke-opacity="0.45"/>')
 
     # ── trajectory ──
     hist = drive.history
@@ -291,6 +335,17 @@ def _render_strip(
                 f'<line x1="{tx:.1f}" y1="{ty:.1f}" x2="{tx:.1f}" y2="{ty - length:.1f}" '
                 f'stroke="{th["ink"]}" stroke-width="2.2" marker-end="url(#binsai-arr)"/>'
             )
+
+    # ── la muerte es la muerte: nada de lo que sigue existe ──
+    if death is not None and tmax:
+        xm = x0 + (death / tmax) * pw
+        g.append(f'<rect x="{xm:.1f}" y="{y0:.1f}" width="{max(0.0, x0 + pw - xm):.1f}" '
+                 f'height="{ph:.1f}" fill="{th["bg"]}" fill-opacity="0.80"/>')
+        g.append(f'<line x1="{xm:.1f}" x2="{xm:.1f}" y1="{y0:.1f}" y2="{y0 + ph:.1f}" '
+                 f'stroke="{th["dead"]}" stroke-width="2"/>')
+        g.append(f'<text x="{xm + 6:.1f}" y="{y0 + 14:.1f}" font-size="11" '
+                 f'fill="{th["dead"]}" font-family="ui-monospace,monospace">'
+                 f'{"muerte" if lang == "es" else "death"}</text>')
 
     # ── ghost projection (what inaction would do next) ──
     if ghost_ticks > 0 and hist:
@@ -330,6 +385,10 @@ def timeline_svg(
     theme: str = "dark",
     band_opacity: float = 0.22,
     lang: str = "es",
+    cycles: Optional[Mapping[str, Sequence[tuple]]] = None,
+    discarded: Optional[Sequence[int]] = None,
+    death: Optional[int] = None,
+    tmax: Optional[int] = None,
 ) -> str:
     """Render one or more drives as a self-contained SVG timeline string.
 
@@ -348,6 +407,18 @@ def timeline_svg(
         band_opacity: algedonic band fill opacity — transparent enough to
             read the trajectory through the bands.
         lang: ``"es"`` or ``"en"`` for strip headers.
+        cycles: per-drive cognitive cycles as ``(open, close, outcome)``, drawn
+            as shaded intervals. An activation is a bounded cognitive cycle,
+            not a point: what matters is how long it ran and how it ended
+            (``resuelto`` green, ``breaker`` red, ``sin_accion_util`` amber).
+        discarded: ticks where the activation draw fired but no variable was
+            out of zone, so there was no micro-objective. Thin marks.
+        death: tick at which the agent died. Everything after is greyed, cycles
+            are truncated there, and none start past it — a dead agent does not
+            activate.
+        tmax: pin the time axis to the whole window instead of the last sample.
+            Without it a drive that dies at 7 h fills the width and looks like
+            it survived.
     """
     th = _THEMES.get(theme)
     if th is None:
@@ -358,7 +429,7 @@ def timeline_svg(
         raise ValueError("timeline_svg needs at least one Drive")
 
     all_ticks = [t for d in ds for t, _ in d.history]
-    tmax = (max(all_ticks) if all_ticks else 1) + ghost_ticks
+    tmax = tmax or ((max(all_ticks) if all_ticks else 1) + ghost_ticks)
     n = len(ds)
     body_h = n * strip_height + (n - 1) * 18
     height = _MARGIN["t"] + body_h + _MARGIN["b"]
@@ -391,7 +462,9 @@ def timeline_svg(
         ev = (events or {}).get(d.name, d.events)
         parts.append(
             _render_strip(d, i, _MARGIN["l"], y_cursor, pw, strip_height,
-                          tmax, ev, ghost_ticks, th, band_opacity, lang)
+                          tmax, ev, ghost_ticks, th, band_opacity, lang,
+                          cycles=(cycles or {}).get(d.name, ()),
+                          discarded=discarded or (), death=death)
         )
         if i < n - 1:
             y_cursor += strip_height + 18

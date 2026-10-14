@@ -46,7 +46,8 @@ def test_sin_dinamica_basal_el_mundo_queda_solo():
 
 
 def test_a3_sin_agente_no_hay_un_solo_release():
-    pres = [0.0]*50 + [0.9]*(PULSOS-100) + [0.0]*50
+    # la serie está en las unidades de la variable: USD, no presión
+    pres = [0.0]*50 + [40.0]*(PULSOS-100) + [0.0]*50
     r = ventana(pres).correr(Escenario.TODO)
     assert r.n_eventos >= 1
     assert r.releases == 0, "ningún evento se cierra porque no hay agente"
@@ -59,7 +60,7 @@ def test_a2_un_wake_sin_micro_objetivo_se_descarta_y_se_cuenta():
 
 
 def test_el_ciclo_cognitivo_es_un_intervalo_y_no_se_solapa():
-    pres = [0.9 if 100 < i < 500 else 0.0 for i in range(PULSOS)]
+    pres = [40.0 if 100 < i < 500 else 0.0 for i in range(PULSOS)]
     r = ventana(pres).correr(Escenario.CON_AGENTE, semilla=7)
     for a, b in zip(r.ciclos, r.ciclos[1:]):
         assert a.cierra is not None and a.cierra <= b.abre, "dos ciclos a la vez"
@@ -91,3 +92,63 @@ def test_las_series_tienen_que_medir_lo_mismo():
         Ventana(horizonte=H, dt=DT, necesidades=[met],
                 variables={"a": var, "b": var},
                 series={"a": [0.0]*10, "b": [0.0]*11}, dueño={"a": "m", "b": "m"})
+
+
+# ── lo que el artefacto canónico tiene que mostrar ───────────────────────────
+
+def _drive_corrido(pulsos=400):
+    d = necesidad("m", +1.0)
+    for t in range(1, pulsos):
+        d.update(tick=t)
+    return d
+
+
+def test_una_activacion_se_dibuja_como_intervalo_no_como_punto():
+    from binsai.viz import timeline_svg
+    d = _drive_corrido()
+    sin = timeline_svg([d], width=900, tmax=PULSOS)
+    con = timeline_svg([d], width=900, tmax=PULSOS,
+                       cycles={"m": [(60, 120, "resuelto"), (200, 300, "breaker")]})
+    assert con.count('fill-opacity="0.16"') == 2, "cada ciclo es una banda"
+    assert sin.count('fill-opacity="0.16"') == 0
+    assert "#3FB950" in con and "#F85149" in con, "el desenlace se distingue"
+
+
+def test_un_agente_muerto_no_se_activa_y_lo_posterior_va_en_gris():
+    from binsai.viz import timeline_svg
+    d = _drive_corrido()
+    s = timeline_svg([d], width=900, tmax=PULSOS, death=250,
+                     cycles={"m": [(100, 180, "breaker"), (300, 360, "breaker")]},
+                     discarded=[50, 280])
+    assert "muerte" in s
+    assert s.count('fill-opacity="0.16"') == 1, "el ciclo posterior a la muerte no se dibuja"
+    assert s.count('stroke-opacity="0.45"') == 1, "ni el wake descartado posterior"
+
+
+def test_el_eje_es_la_ventana_entera_no_la_ultima_muestra():
+    from binsai.viz import timeline_svg
+    import re
+    d = _drive_corrido(pulsos=200)                 # murió a mitad de camino
+    libre = timeline_svg([d], width=900)
+    fijo = timeline_svg([d], width=900, tmax=PULSOS)
+    puntos = lambda s: re.search(r'<polyline points="([^"]*)"', s).group(1).split()
+    assert float(puntos(libre)[-1].split(",")[0]) > float(puntos(fijo)[-1].split(",")[0]), \
+        "sin tmax la serie ocupa todo el ancho y parece que llegó al final"
+
+
+def test_la_marca_del_resorte_no_depende_del_reloj():
+    """κ está en 1/tiempo²: con un reloj del mundo tapaba la tira entera."""
+    from binsai.viz import timeline_svg
+    import re
+    alturas = []
+    for dt in (1.0, 1/60):
+        d = Drive(name="m", set_point=0.5, value=0.5, spring="magnetic-2nd",
+                  lambda_rate=0.001, basal_direction="recover", dt=dt,
+                  horizon=H, viability=(0.5-1/3, 0.5+1/3))
+        d.calibrate(mortality=0.6)
+        d.update(tick=1)
+        s = timeline_svg([d], width=900, strip_height=180)
+        m = re.search(r'y1="([\d.]+)" y2="([\d.]+)" stroke="#BC8CFF"', s)
+        alturas.append(abs(float(m.group(2)) - float(m.group(1))))
+    assert alturas[0] == pytest.approx(alturas[1]), "la marca cambiaba con el pulso"
+    assert all(a < 180 for a in alturas), "y no puede ser más alta que la tira"
