@@ -157,6 +157,7 @@ class ObservedVariable(EventEmitter):
         valid_range:      tuple[Optional[float], Optional[float]] = (None, None),
         source:           str             = "",
         zone_thresholds:  tuple[float, float, float] = (0.15, 0.40, 0.70),
+        zone_hysteresis:  float           = 0.15,  # deadband, as a fraction of the band
         impulse_iota:     tuple[float, float, float] = (0.02, 0.06, 0.18),  # ι₁ ι₂ ι₃
         impulse_zeta:     float           = 0.6,   # ζ — improving satiates less
     ) -> None:
@@ -183,6 +184,7 @@ class ObservedVariable(EventEmitter):
         self.valid_range = valid_range
         self.source = source
         self.zone_thresholds = zone_thresholds
+        self.zone_hysteresis = max(0.0, min(0.9, float(zone_hysteresis)))
         self.impulse_iota = impulse_iota
         self.impulse_zeta = impulse_zeta
 
@@ -485,8 +487,34 @@ class ObservedVariable(EventEmitter):
             return f"moderate_{suffix}"
         return "equilibrium"
 
-    def _check_zone(self, p: float, t: float, value: float) -> None:
+    def _settled_zone(self, p: float, last: Optional[str]) -> str:
+        """The band this pressure is in, with a deadband on the way back (v2.1 §1).
+
+        Without it a sensor that dithers across a band edge emits a crossing
+        every sample: in the night of 2026-10-13 free RAM produced 145 events
+        in 594 minutes, 98 of them "toward", alternating at one per minute.
+        That is not the world perturbing the agent, it is quantisation noise,
+        and an agent that must close every one of them has no budget left.
+
+        Entering a worse band is immediate — pain must not be delayed. Leaving
+        it requires the pressure to fall a fraction `zone_hysteresis` of the
+        band below its entry threshold, so the deadband is a fraction of the
+        band and carries no units of its own.
+        """
         zone = self.pressure_zone(p)
+        if not self.zone_hysteresis or last is None:
+            return zone
+        sev_now, sev_last = self._severity(zone), self._severity(last)
+        if sev_now >= sev_last:
+            return zone                       # worse, or the same band: take it
+        entry = (0.0,) + tuple(self.zone_thresholds)
+        floor = entry[sev_last] - self.zone_hysteresis * (entry[sev_last] - entry[sev_last - 1])
+        if p >= floor:
+            return last                       # inside the deadband: it has not left
+        return zone
+
+    def _check_zone(self, p: float, t: float, value: float) -> None:
+        zone = self._settled_zone(p, self._last_zone)
         if zone != self._last_zone:
             self.emit(ZONE_CHANGED, {
                 "variable":   self.name,
@@ -520,8 +548,8 @@ class ObservedVariable(EventEmitter):
         """
         if p is None:
             return
-        zone = self.pressure_zone(min(1.0, p))
         last = self._last_level_zone if kind == "level" else self._last_pace_zone
+        zone = self._settled_zone(min(1.0, p), last)
         if zone == last:
             return
         if kind == "level":

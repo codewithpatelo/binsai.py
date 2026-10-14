@@ -265,3 +265,44 @@ def test_the_envelope_is_scale_free_too():
         return [trace[int(f * (horizon - 1))] for f in (0.02, 0.05, 0.2, 0.6, 0.95)]
     for a, b in zip(shape(690.0), shape(6900.0)):
         assert a == pytest.approx(b, rel=0.01)
+
+
+def test_a_dithering_sensor_does_not_emit_a_crossing_every_sample():
+    """v2.1 §1 — the band has a deadband on the way out.
+
+    Free RAM on the night of 2026-10-13 moved more than 1 GB between
+    consecutive minutes 169 times. Without a deadband every wobble across a
+    band edge is a perturbation, and the agent spends its budget closing
+    quantisation noise instead of regulating.
+    """
+    from binsai.observed import ObservedVariable
+    from binsai.events import PERTURBED
+
+    def crossings(hysteresis: float) -> int:
+        var = ObservedVariable("piso", "floor", 2.0, window=10.0, set_point=10.0,
+                               monotonic=False, pacing_mode="none",
+                               zone_hysteresis=hysteresis)
+        seen: list[dict] = []
+        var.on(PERTURBED, seen.append)
+        # a value that sits right on the first band edge and wobbles by a hair
+        for i in range(200):
+            var.observe(i * 0.05, 8.96 if i % 2 else 8.92)
+        return len(seen)
+
+    assert crossings(0.0) > 20, "without a deadband the dither must show up"
+    assert crossings(0.15) <= 2, "with one, the band is entered once and held"
+
+
+def test_entering_a_worse_band_is_never_delayed():
+    """Pain is immediate; only the way back is damped."""
+    from binsai.observed import ObservedVariable
+    from binsai.events import PERTURBED
+
+    var = ObservedVariable("piso", "floor", 2.0, window=10.0,
+                           monotonic=False, zone_hysteresis=0.4)
+    seen: list[dict] = []
+    var.on(PERTURBED, seen.append)
+    var.observe(0.0, 9.0)      # anchors far from the floor
+    var.observe(0.1, 2.05)     # straight into the worst band
+    assert seen and seen[-1]["direction"] == "away"
+    assert seen[-1]["severity"] == 3
