@@ -8,7 +8,7 @@ libre por necesidad.
 
 | Símbolo | Campo | Significado | Valor inicial |
 |---|---|---|---|
-| `ι₁`, `ι₂`, `ι₃` | `impulse_iota` | magnitud del impulso por severidad de cruce (verde→amarillo, amarillo→ámbar, ámbar→rojo) | 0.02 / 0.06 / 0.18 |
+| `ι₁`, `ι₂`, `ι₃` | `impulse_iota` | magnitud del impulso por severidad de cruce (verde→amarillo, amarillo→ámbar, ámbar→rojo) | 0.02 / 0.06 / 0.18 por defecto. `band_impulses(drive)` los lee de las bandas de la necesidad: un cruce mueve una banda |
 | `ζ` | `impulse_zeta` | asimetría mejora vs empeoramiento | 0.6 |
 | `τ_u` | `impulse_tau` | ancho del núcleo de decaimiento `ψ(s)=e^(−s/τ_u)`, en ticks | 2 |
 | `g_ok` | `agent.g_ok` | umbral de efecto logrado (`g ≥ g_ok` → saciación sobre lo medido) | 0.5 |

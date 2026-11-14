@@ -57,7 +57,7 @@ from .drives import Drive, ZoneSpec
 __all__ = [
     "ShapeRatios", "Calibration",
     "calibrate_drive", "calibrate_drive_perturbation",
-    "basal_time_to_death", "grip", "resting_point",
+    "basal_time_to_death", "grip", "resting_point", "band_impulses",
 ]
 
 
@@ -82,6 +82,34 @@ def resting_point(kappa: float, w: float, lambda0: float) -> Optional[float]:
         else:
             hi = m
     return 0.5 * (lo + hi)
+
+
+def band_impulses(drive: Drive) -> tuple[float, float, float]:
+    """ι₁ ι₂ ι₃ read off the drive's own bands — one crossing moves the need one band.
+
+    With its observed variable in yellow, amber or red, the need sits at the
+    centre of its own yellow, amber or red band. The displacement is measured
+    from the resting point, which is where basal drift leaves the need, on the
+    side basal neglect pushes it. Returned as fractions of the viability margin.
+
+    Nothing is chosen: the sizes come from the bands the contract declares.
+    This replaces the fixed 0.11 : 0.33 : 1 proportion, which had no source and
+    left a yellow crossing too small to take the need out of green.
+    """
+    lo_v, hi_v = drive.viability
+    margin = min(abs(drive.set_point - lo_v), abs(hi_v - drive.set_point)) or 1.0
+    away = 1.0 if drive.lambda_rate >= 0 else -1.0
+    d_eq = resting_point(drive.kappa, drive.spring_reach, drive.lambda_rate) \
+        if drive.kappa > 0 and drive.spring_reach not in (None, float("inf")) else None
+    rest = drive.set_point + away * (d_eq or 0.0)
+    verde = next((z.center for z in (drive.zones or []) if z.name == "verde"), drive.set_point)
+    lado = sorted((z.center for z in (drive.zones or []) if (z.center - verde) * away > 1e-9),
+                  key=lambda c: abs(c - verde))
+    if len(lado) < 3:
+        raise ValueError(
+            f"drive '{drive.name}' declares {len(lado)} band(s) beyond green on the side basal "
+            "neglect pushes it; three (yellow, amber, red) are needed to size its impulses.")
+    return tuple(abs(c - rest) / margin for c in lado[:3])
 
 
 @dataclass
@@ -346,9 +374,14 @@ def calibrate_drive_perturbation(
     margin = min(abs(drive.set_point - lo_v), abs(hi_v - drive.set_point))
     away = 1.0 if drive.lambda_rate >= 0 else -1.0
 
+    # La proporción entre los tres golpes sale de las bandas de la necesidad (un
+    # cruce mueve una banda); lo que se despeja acá es la escala.
+    b1, b2, b3 = band_impulses(drive)
+    r1, r2 = b1 / b3, b2 / b3
+
     def unattended(iota3: float) -> float:
         d = _clone_for_counterfactual(drive, fatigue=drive.spring_fatigue)
-        d.impulse_iota = (iota3 * 0.11, iota3 * 0.33, iota3)
+        d.impulse_iota = (iota3 * r1, iota3 * r2, iota3)
         r = random.Random(seed)
         p_tick = 1.0 - math.exp(-rate * d.dt / H)
         steps = int(round(H / max(d.dt, 1e-12)))
@@ -366,7 +399,7 @@ def calibrate_drive_perturbation(
         mid = 0.5 * (lo + hi)
         lo, hi = (mid, hi) if unattended(mid) > target else (lo, mid)
     iota3 = 0.5 * (lo + hi)
-    iotas = (iota3 * 0.11, iota3 * 0.33, iota3)
+    iotas = (iota3 * r1, iota3 * r2, iota3)
     if apply:
         drive.impulse_iota = iotas
     return iotas

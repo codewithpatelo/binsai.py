@@ -132,7 +132,7 @@ conducta.
 
 ---
 
-## A7 — Holgura basal · BORRADOR, no cerrado
+## A7 — Holgura basal
 
 Una necesidad en **superávit** tiene recursos por encima de su punto de
 equilibrio que la ventana no va a devolver. Dejarlos sin usar es una pérdida, y
