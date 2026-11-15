@@ -1072,11 +1072,15 @@ class Drive(EventEmitter):
 
         # La CONDICIÓN es la banda en que está la variable ahora; el EVENTO es
         # la perturbación. Tres reglas que no se pisan:
-        #   sale de verde         -> abre un evento nuevo
+        #   sale de verde         -> abre un evento, si la fuente no tiene uno
+        #                            abierto
         #   empeora estando fuera -> escala el abierto, no abre otro
         #   vuelve a verde        -> nada en la necesidad (A3: el mundo no
-        #                            libera), pero la próxima salida abre uno
-        #                            nuevo, porque es otra perturbación.
+        #                            libera). El evento sigue abierto, así que
+        #                            si la variable vuelve a salir es la misma
+        #                            perturbación (A2.2): escala si es peor y
+        #                            no abre otra. Una nueva abre recién cuando
+        #                            una acción cerró la anterior.
         previa = self._zona_fuente.get(fuente, 0)
         if hacia:
             destino = str(payload.get("to", ""))
@@ -1112,7 +1116,7 @@ class Drive(EventEmitter):
         magnitude = self.impulse_iota[min(2, max(1, severity) - 1)] * margin
 
         abierto = next((p for p in self._open if p.open and p.source == fuente), None)
-        if previa > 0 and abierto is not None:
+        if abierto is not None:
             if severity > abierto.severity:
                 abierto.severity, abierto.magnitude = severity, magnitude
                 abierto.de, abierto.a = str(payload.get("from", "")), str(payload.get("to", ""))

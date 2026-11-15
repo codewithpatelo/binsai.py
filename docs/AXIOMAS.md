@@ -67,6 +67,12 @@ emita un evento por muestra. Un sensor que vibra en un borde no está
 perturbando al agente: está haciendo ruido, y un agente que tiene que cerrar
 cada vibración no tiene presupuesto para regular.
 
+**Un evento por cruce.** Mientras una fuente tenga un evento abierto, que ninguna
+acción cerró, volver a salir de verde no abre otro: es la misma perturbación,
+que escala si la banda es peor. El deadband solo no alcanza cuando la variable
+vuelve a verde por su cuenta y sale de nuevo: por A3 ese regreso no libera el
+evento, y cada salida apilaba uno más sobre la necesidad.
+
 ---
 
 ## A3 — Corrección

@@ -4,6 +4,12 @@
 
 ### Delta sobre v2 — spec completa en `docs/paov2.1.md`
 
+- **A2.2 — un evento por cruce.** Mientras una fuente tenga un evento abierto,
+  volver a salir de verde no abre otro: es la misma perturbación y escala si la
+  banda es peor. Antes cada salida abría uno nuevo y una variable que volvía
+  sola a verde y salía otra vez apilaba eventos sobre la necesidad
+  (`Drive._on_perturbation`, `docs/AXIOMAS.md`).
+
 **Framing (rev 2026-10-10): EPA v2 nunca corrió.** El proceso de la noche
 del 09 integró ley de Hooke con pared en ±1 (primer orden, resorte lineal,
 clipping) — firma vieja de `integrateProaction`, el módulo v2 no cargaba.

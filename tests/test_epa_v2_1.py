@@ -102,9 +102,9 @@ class TestPerturbationIsAnImpulse:
 
         Un cruce hacia la zona estable no abre un evento espejado ni apaga el
         que está abierto. Si lo apagara, el agente se llevaría crédito por la
-        suerte del mundo y el axioma 3 no existiría. Lo que sí hace es bajar la
-        condición: la próxima salida de verde abre un evento nuevo, porque es
-        otra perturbación.
+        suerte del mundo y el axioma 3 no existiría. El evento sigue abierto,
+        así que si la variable vuelve a salir es la misma perturbación (A2.2):
+        no abre otra. Una nueva abre recién cuando una acción cerró la anterior.
         """
         var = ObservedVariable(
             name="ram_free_gb", kind="floor", limit=(0.0, 10.0),
@@ -126,9 +126,18 @@ class TestPerturbationIsAnImpulse:
         assert abierto.g == 0.0, "nadie actuó: la saciedad es cero"
         assert abierto.closed_at is None
 
-        var.observe(3.0, 1.0)           # vuelve a salir: ES otra perturbación
+        var.observe(3.0, 1.0)           # vuelve a salir: es la misma perturbación
         drive.update(tick=3)
-        assert drive.open_perturbations == 2
+        assert drive.open_perturbations == 1
+        assert drive._open[-1] is abierto
+
+        assert drive.correct(tick=4, g=1.0) == 1     # una acción la cierra
+        var.observe(5.0, 10.0)
+        drive.update(tick=5)
+        var.observe(6.0, 1.0)           # ahora sí: es otra perturbación
+        drive.update(tick=6)
+        assert drive.open_perturbations == 1
+        assert drive._open[-1] is not abierto
 
     def test_a_worse_band_escalates_instead_of_opening_another(self):
         """La condición es una; el evento también, mientras siga fuera."""
