@@ -90,16 +90,19 @@ def _zone_color(name: str, th: dict) -> str:
 def _zone_bands(zones) -> list[tuple[float, float, str]]:
     """Hard-edged algedonic bands: (lo, hi, zone_name) covering [0,1].
 
-    Band edges sit at the midpoints between consecutive zone centers — so
-    the number of bands and their thresholds follow ``drive.zones`` directly
-    (parametrizable per drive, default seven).
+    Band edges sit where the dominant zone changes: where the Gaussian
+    memberships of two consecutive zones are equal, which is what
+    ``Drive.get_zone`` uses. With equal widths that is the midpoint between
+    centers; with different widths it is not, and drawing the midpoint shows a
+    need "in yellow" that the drive itself reads as green.
     """
     if not zones:
         return [(0.0, 1.0, "verde")]
     zs = sorted(zones, key=lambda z: z.center)
     edges = [0.0]
     for a, b in zip(zs, zs[1:]):
-        edges.append((a.center + b.center) / 2.0)
+        wa, wb = max(a.width, 1e-9), max(b.width, 1e-9)
+        edges.append((a.center * wb + b.center * wa) / (wa + wb))
     edges.append(1.0)
     return [(edges[i], edges[i + 1], zs[i].name) for i in range(len(zs))]
 
