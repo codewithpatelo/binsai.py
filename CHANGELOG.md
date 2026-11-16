@@ -17,6 +17,9 @@
   Ahora se guardan todos, de a una banda. `Drive.cobrar_correccion` devuelve la
   lista de correcciones (antes una o `None`) y `Drive.tomar_cruces` entrega los
   cruces pendientes a quien calcula su propia magnitud.
+  Cada banda se devuelve una vez por golpe: por A2.2 una variable que vuelve a
+  salir de verde con su evento abierto no golpea de nuevo, así que su regreso
+  tampoco cura de nuevo (`Drive._bandas_pendientes`).
 
 **Framing (rev 2026-10-10): EPA v2 nunca corrió.** El proceso de la noche
 del 09 integró ley de Hooke con pared en ±1 (primer orden, resorte lineal,

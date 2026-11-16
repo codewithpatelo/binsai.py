@@ -305,6 +305,9 @@ class Drive(EventEmitter):
     basal_suspendida: bool = False   # no corre la basal: hay perturbación o acción
     _curas_disponibles: dict = field(default_factory=dict, repr=False)
     _cierres_disponibles: set = field(default_factory=set, repr=False)
+    # bandas que un golpe de cada fuente desplazó y todavía nadie devolvió: una
+    # corrección por banda golpeada, no una por cada vez que el sensor la cruza
+    _bandas_pendientes: dict = field(default_factory=dict, repr=False)
     _seen:          list["Perturbation"] = field(default_factory=list, repr=False)
     # banda actual por variable observada: distingue la CONDICIÓN del EVENTO
     _zona_fuente:   dict = field(default_factory=dict, repr=False)
@@ -1102,13 +1105,23 @@ class Drive(EventEmitter):
             hemi = str(payload.get("hemisphere", "deficit"))
             orden = ("verde", "amarillo", "ambar", "rojo")
             hasta = next((k for k, n in enumerate(orden) if n in destino), 0)
+            #
+            # Y cada banda se devuelve UNA vez por golpe. Por A2.2 una variable que
+            # vuelve a salir de verde con su evento abierto no golpea de nuevo; si
+            # cada regreso contara como corrección, un sensor que vibra en un borde
+            # acreditaría más de lo que el golpe quitó y empujaría la necesidad
+            # contra la pared opuesta.
             pendientes = self._curas_disponibles.setdefault(fuente, [])
-            if severity - hasta > 1:
-                for k in range(severity, hasta, -1):
+            golpeadas = self._bandas_pendientes.setdefault(fuente, set())
+            for k in range(severity, hasta, -1):
+                if k not in golpeadas:
+                    continue
+                golpeadas.discard(k)
+                if severity - hasta > 1:
                     pendientes.append((tick, k, hemi, f"{hemi}_{orden[k]}",
                                        orden[0] if k == 1 else f"{hemi}_{orden[k - 1]}"))
-            else:
-                pendientes.append((tick, severity, hemi, str(payload.get("from", "")), destino))
+                else:
+                    pendientes.append((tick, severity, hemi, str(payload.get("from", "")), destino))
             if previa_z and "verde" in destino:
                 self._cierres_disponibles.add(fuente)
             return
@@ -1131,12 +1144,15 @@ class Drive(EventEmitter):
         abierto = next((p for p in self._open if p.open and p.source == fuente), None)
         if abierto is not None:
             if severity > abierto.severity:
+                self._bandas_pendientes.setdefault(fuente, set()).update(
+                    range(abierto.severity + 1, severity + 1))
                 abierto.severity, abierto.magnitude = severity, magnitude
                 abierto.de, abierto.a = str(payload.get("from", "")), str(payload.get("to", ""))
                 self.record_event(tick, "shock" if severity >= 3 else "pert")
             return
         ev = self.open_perturbation(tick, severity, signo, magnitude=magnitude, source=fuente)
         ev.de, ev.a = str(payload.get("from", "")), str(payload.get("to", ""))
+        self._bandas_pendientes[fuente] = set(range(1, severity + 1))
 
     def zona_verde(self) -> tuple[float, float]:
         """El intervalo de valores que es la zona verde de esta necesidad."""

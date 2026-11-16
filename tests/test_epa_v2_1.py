@@ -575,9 +575,24 @@ class TestCrucesHaciaElEquilibrio:
         d._on_perturbation(dict(t=t, severity=severidad, variable="precision", direction="toward",
                                 hemisphere="deficit", to=a, **{"from": de}))
 
+    @staticmethod
+    def _golpe(d, t, severidad):
+        d._on_perturbation(dict(t=t, severity=severidad, variable="precision", direction="away",
+                                hemisphere="deficit", to="x", **{"from": "verde"}))
+
+    def test_cada_banda_se_devuelve_una_vez_por_golpe(self):
+        """Un sensor que vibra en el borde amarillo/verde no acredita una corrección por
+        cada regreso: por A2.2 volver a salir no golpea de nuevo, así que tampoco cura de nuevo."""
+        d = make_drive(name="eficacia", value=0.5)
+        self._golpe(d, 0.0, 1)
+        self._cruce(d, 1.0, 1, "deficit_amarillo", "verde")
+        self._golpe(d, 2.0, 1)                                  # vuelve a salir: mismo evento
+        self._cruce(d, 3.0, 1, "deficit_amarillo", "verde")
+        assert len(d.cobrar_correccion(4, "precision")) == 1
+
     def test_dos_cruces_antes_de_cobrar_son_dos_correcciones(self):
         d = make_drive(name="eficacia", value=0.5)
-        d._zona_fuente["precision"] = 2
+        self._golpe(d, 0.0, 2)
         self._cruce(d, 1.0, 2, "deficit_ambar", "deficit_amarillo")
         self._cruce(d, 2.0, 1, "deficit_amarillo", "verde")
         curas = d.cobrar_correccion(3, "precision")
@@ -586,7 +601,7 @@ class TestCrucesHaciaElEquilibrio:
 
     def test_un_salto_de_dos_bandas_se_guarda_banda_por_banda(self):
         d = make_drive(name="eficacia", value=0.5)
-        d._zona_fuente["precision"] = 2
+        self._golpe(d, 0.0, 2)
         self._cruce(d, 1.0, 2, "deficit_ambar", "verde")
         cruces = d.tomar_cruces("precision")
         assert [(c[1], c[3], c[4]) for c in cruces] == [(2, "deficit_ambar", "deficit_amarillo"),
