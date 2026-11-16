@@ -565,3 +565,29 @@ class TestTraces:
         assert gm["delta_expected"] == 0.10
         assert gm["delta_observed"] == 0.0
         assert af["reason"] == "null_effect"
+
+class TestCrucesHaciaElEquilibrio:
+    """C1 y C2 — cada cruce de banda hacia el equilibrio que causó una acción es una
+    corrección. Se guardan todos hasta cobrarlos, de a una banda."""
+
+    @staticmethod
+    def _cruce(d, t, severidad, de, a):
+        d._on_perturbation(dict(t=t, severity=severidad, variable="precision", direction="toward",
+                                hemisphere="deficit", to=a, **{"from": de}))
+
+    def test_dos_cruces_antes_de_cobrar_son_dos_correcciones(self):
+        d = make_drive(name="eficacia", value=0.5)
+        d._zona_fuente["precision"] = 2
+        self._cruce(d, 1.0, 2, "deficit_ambar", "deficit_amarillo")
+        self._cruce(d, 2.0, 1, "deficit_amarillo", "verde")
+        curas = d.cobrar_correccion(3, "precision")
+        assert [c.severity for c in curas] == [2, 1]
+        assert d.cobrar_correccion(4, "precision") == []      # ya cobrados
+
+    def test_un_salto_de_dos_bandas_se_guarda_banda_por_banda(self):
+        d = make_drive(name="eficacia", value=0.5)
+        d._zona_fuente["precision"] = 2
+        self._cruce(d, 1.0, 2, "deficit_ambar", "verde")
+        cruces = d.tomar_cruces("precision")
+        assert [(c[1], c[3], c[4]) for c in cruces] == [(2, "deficit_ambar", "deficit_amarillo"),
+                                                         (1, "deficit_amarillo", "verde")]

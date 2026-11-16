@@ -9,6 +9,14 @@
   banda es peor. Antes cada salida abría uno nuevo y una variable que volvía
   sola a verde y salía otra vez apilaba eventos sobre la necesidad
   (`Drive._on_perturbation`, `docs/AXIOMAS.md`).
+- **C1/C2 — todos los cruces hacia el equilibrio se cobran.** Los cruces de una
+  variable hacia su zona estable se guardaban en un solo casillero por fuente
+  hasta que una acción los cobrara: un segundo cruce pisaba al primero, y un
+  salto de dos bandas contaba como uno. El golpe entraba entero y la corrección a
+  medias, así que la necesidad quedaba desplazada con la variable ya en verde.
+  Ahora se guardan todos, de a una banda. `Drive.cobrar_correccion` devuelve la
+  lista de correcciones (antes una o `None`) y `Drive.tomar_cruces` entrega los
+  cruces pendientes a quien calcula su propia magnitud.
 
 **Framing (rev 2026-10-10): EPA v2 nunca corrió.** El proceso de la noche
 del 09 integró ley de Hooke con pared en ±1 (primer orden, resorte lineal,

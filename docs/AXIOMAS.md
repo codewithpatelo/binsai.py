@@ -271,6 +271,12 @@ su release.
 **Prohíbe.** Que una acción lleve la necesidad de donde esté hasta verde de un
 saque. Eso no es un zone pass, es teletransporte.
 
+**Todos se cobran.** Entre una acción y su observación la variable puede cruzar
+más de una banda. Cada cruce es una corrección, y un salto de dos bandas son dos
+cruces. Si sólo se cobra el último, el golpe entró entero y la corrección a
+medias: la necesidad queda desplazada con la variable en verde, donde ya no hay
+cruces que la curen.
+
 ### C3 — Qué apaga el bucle cognitivo
 
 Correcciones que lleven la **necesidad** a su zona verde. Nada más.

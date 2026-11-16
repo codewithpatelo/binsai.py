@@ -312,8 +312,7 @@ class Ventana:
                         # cobra el cruce hacia el equilibrio en cualquier
                         # variable del carril: el agente atiende la necesidad
                         for k in [kk for kk in obs if self.dueño[kk] == nec.name]:
-                            if nec.cobrar_correccion(i, k) is not None:
-                                ciclo.curas += 1
+                            ciclo.curas += len(nec.cobrar_correccion(i, k))
                         if vuelve:
                             nec.correct(i, 1.0, source=ciclo.variable)
                             ciclo.g = 1.0

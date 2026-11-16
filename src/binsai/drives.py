@@ -1093,9 +1093,22 @@ class Drive(EventEmitter):
             # El cruce hacia el equilibrio queda DISPONIBLE, no aplicado: una
             # corrección es un cruce causado por una acción de calidad. Sin
             # agente no hay corrección, y el mundo no se cura solo (A3).
-            self._curas_disponibles[fuente] = (tick, severity,
-                                               str(payload.get("hemisphere", "deficit")),
-                                               str(payload.get("from", "")), destino)
+            # Se guardan TODOS los cruces hasta que una acción los cobre, y de a una
+            # banda (C2): si la variable cruzó dos bandas antes de que se observe la
+            # acción, son dos correcciones. Con un solo casillero por fuente el
+            # segundo cruce pisaba al primero: el golpe había entrado entero y la
+            # corrección entraba a medias, y la necesidad quedaba desplazada con la
+            # variable ya en verde, donde no hay más cruces que la curen.
+            hemi = str(payload.get("hemisphere", "deficit"))
+            orden = ("verde", "amarillo", "ambar", "rojo")
+            hasta = next((k for k, n in enumerate(orden) if n in destino), 0)
+            pendientes = self._curas_disponibles.setdefault(fuente, [])
+            if severity - hasta > 1:
+                for k in range(severity, hasta, -1):
+                    pendientes.append((tick, k, hemi, f"{hemi}_{orden[k]}",
+                                       orden[0] if k == 1 else f"{hemi}_{orden[k - 1]}"))
+            else:
+                pendientes.append((tick, severity, hemi, str(payload.get("from", "")), destino))
             if previa_z and "verde" in destino:
                 self._cierres_disponibles.add(fuente)
             return
@@ -1250,14 +1263,18 @@ class Drive(EventEmitter):
         })
         return p
 
-    def cobrar_correccion(self, tick: int, source: str) -> Optional["Correccion"]:
-        """El agente actuó sobre `source`: si la variable cruzó hacia el punto
-        de equilibrio, ese cruce es su corrección y recién ahora cura."""
-        d = self._curas_disponibles.pop(source, None)
-        if d is None:
-            return None
-        _t, sev, hemi, de, a = d
-        return self.open_correction(tick, sev, source, hemisphere=hemi, de=de, a=a)
+    def tomar_cruces(self, source: str) -> list:
+        """Los cruces hacia el equilibrio de `source` que todavía nadie cobró, en el
+        orden en que ocurrieron: (tick, severidad, hemisferio, de, a), uno por banda.
+        Los saca de la lista: quien los toma decide si los acredita (A3)."""
+        return list(self._curas_disponibles.pop(source, None) or [])
+
+    def cobrar_correccion(self, tick: int, source: str) -> list:
+        """El agente actuó sobre `source`: cada cruce de la variable hacia el punto
+        de equilibrio desde entonces es una corrección suya y recién ahora cura.
+        Devuelve las correcciones abiertas, una por cruce; lista vacía si no hubo."""
+        return [self.open_correction(tick, sev, source, hemisphere=hemi, de=de, a=a)
+                for _t, sev, hemi, de, a in self.tomar_cruces(source)]
 
     def correct(self, tick: int, g: float, source: str = "") -> int:
         """A corrective action of **measured** quality g. Returns events it closed.
