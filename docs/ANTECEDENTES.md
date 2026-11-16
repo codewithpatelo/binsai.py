@@ -51,3 +51,17 @@ un cambio de la variable interna y con qué dinámica esa variable decae o se re
 es lo que en la EPA especifican la dinámica basal, la envolvente de la perturbación y la
 corrección. La regulación entra como un costo restado a la recompensa y como temperatura
 de la política, no como una tasa de activación.
+
+## Antecedentes ya citados en otros documentos
+
+| Antecedente | Para qué se cita | Dónde |
+|---|---|---|
+| Ashby, *Design for a Brain* (1952): variables esenciales y ultraestabilidad | El sistema viable es el que mantiene sus variables esenciales dentro de límites; el homeostato cambia sus propios parámetros hasta volver a ser viable | `FINDING-RESORTE.md`, `DIRECTIONS.md` §2 |
+| Varela: autopoiesis y enacción | El sentido sale de la precariedad: lo que no puede morir no tiene nada en juego | `FINDING-RESORTE.md` |
+| Keramati y Gutkin: aprendizaje por refuerzo homeostático | Maximizar recompensa y minimizar el error homeostático son equivalentes si la recompensa es la reducción del desvío | `DIRECTIONS.md` §1 |
+| Sterling: alostasis | El punto de equilibrio se mueve por anticipación, no sólo por daño | `DIRECTIONS.md` §2 |
+| McEwen: carga alostática | La exposición crónica cambia la estructura, no sólo desgasta | `DIRECTIONS.md` §2 |
+| Mutagénesis inducida por estrés en bacterias | La tasa de mutación sube bajo estrés prolongado | `DIRECTIONS.md` §2 |
+| Metaplasticidad | La plasticidad misma es plástica | `DIRECTIONS.md` §2 |
+| Stafford Beer: cibernética, señales algedónicas | Origen de las bandas algedónicas | `README.md` |
+| ConstraintRot, arXiv:2606.22528 | Las restricciones se pierden al compactar el contexto: 0 % de violaciones con la política en contexto, 30 % tras una compactación, 78 % tras cuatro | `src/binsai/contract.py` |
