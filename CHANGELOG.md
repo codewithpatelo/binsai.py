@@ -20,6 +20,8 @@
   Cada banda se devuelve una vez por golpe: por A2.2 una variable que vuelve a
   salir de verde con su evento abierto no golpea de nuevo, así que su regreso
   tampoco cura de nuevo (`Drive._bandas_pendientes`).
+  La banda se da por devuelta cuando una acción la cobra; un regreso que hizo el
+  mundo se descarta con `Drive.descartar_cruces` y no la consume.
 
 **Framing (rev 2026-10-10): EPA v2 nunca corrió.** El proceso de la noche
 del 09 integró ley de Hooke con pared en ±1 (primer orden, resorte lineal,

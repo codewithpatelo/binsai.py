@@ -1111,12 +1111,10 @@ class Drive(EventEmitter):
             # cada regreso contara como corrección, un sensor que vibra en un borde
             # acreditaría más de lo que el golpe quitó y empujaría la necesidad
             # contra la pared opuesta.
+            # La banda se da por devuelta recién cuando una acción la cobra
+            # (`tomar_cruces`): un regreso que hizo el mundo no la consume.
             pendientes = self._curas_disponibles.setdefault(fuente, [])
-            golpeadas = self._bandas_pendientes.setdefault(fuente, set())
             for k in range(severity, hasta, -1):
-                if k not in golpeadas:
-                    continue
-                golpeadas.discard(k)
                 if severity - hasta > 1:
                     pendientes.append((tick, k, hemi, f"{hemi}_{orden[k]}",
                                        orden[0] if k == 1 else f"{hemi}_{orden[k - 1]}"))
@@ -1283,7 +1281,18 @@ class Drive(EventEmitter):
         """Los cruces hacia el equilibrio de `source` que todavía nadie cobró, en el
         orden en que ocurrieron: (tick, severidad, hemisferio, de, a), uno por banda.
         Los saca de la lista: quien los toma decide si los acredita (A3)."""
-        return list(self._curas_disponibles.pop(source, None) or [])
+        golpeadas = self._bandas_pendientes.setdefault(source, set())
+        out = []
+        for c in self._curas_disponibles.pop(source, None) or []:
+            if c[1] in golpeadas:                # una corrección por banda golpeada
+                golpeadas.discard(c[1])
+                out.append(c)
+        return out
+
+    def descartar_cruces(self, source: str) -> int:
+        """Los cruces pendientes de `source` los hizo el mundo, no una acción: se
+        descartan sin dar por devuelta ninguna banda (A3). Devuelve cuántos eran."""
+        return len(self._curas_disponibles.pop(source, None) or [])
 
     def cobrar_correccion(self, tick: int, source: str) -> list:
         """El agente actuó sobre `source`: cada cruce de la variable hacia el punto
