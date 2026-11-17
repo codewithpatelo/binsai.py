@@ -2,11 +2,15 @@
 
 ## Definición
 
-Un problema regulatorio es de **segundo orden** cuando la acción correcta no se puede decidir
-mirando una señal de primer orden sola: hay que agrupar varias y leerlas juntas.
+Una señal de **primer orden** es un dato crudo: lo que mide un sensor, tal cual. El costo de una
+acción, una paga, una lectura de precisión.
 
-Una señal de primer orden es lo que emite un sensor sobre una variable del mundo: su valor, su
-zona y su ritmo en este instante.
+El **segundo orden** es el significado que se construye sobre esos datos: en qué zona está, si
+cruzó, cuántas veces, hace cuánto, qué coincidió con qué. Eso no lo emite ningún sensor; lo
+produce la necesidad que los escucha.
+
+Un problema regulatorio es de segundo orden cuando la acción correcta no se puede decidir
+mirando un dato crudo solo: hay que agrupar varios datos distintos y leerlos juntos.
 
 ## Condiciones
 
@@ -19,17 +23,18 @@ Las cuatro de todo problema regulatorio (paper Blue Sky, AAMAS 2027):
 
 Y tres más, que lo hacen de segundo orden:
 
-5. **Agregación (N:1).** Cada cosa que el agente tiene que mantener viable depende de varias
-   señales de primer orden, no de una.
+5. **Agregación (N:1).** Cada cosa que el agente tiene que mantener viable depende de varios
+   datos crudos **distintos**, no de uno. Medir el mismo dato de varias maneras (un gasto, su
+   suma y su promedio) no es N:1: es un dato.
    *Ejemplo: el costo de operar son dólares de API, tokens, memoria y tiempo.*
 
-6. **Contexto.** Lo que define qué hacer está en cómo se combinan esas señales en el tiempo:
+6. **Contexto.** Lo que define qué hacer está en cómo se combinan esos datos en el tiempo:
    cuáles coinciden (conjunción), cuántas veces (frecuencia), hace cuánto (duración) y hacia dónde
    van (tendencia).
    *Ejemplo: una caída de precisión aislada y tres caídas en una hora, cada vez más seguidas, son
-   la misma señal de primer orden y piden respuestas distintas.*
+   el mismo dato crudo y piden respuestas distintas.*
 
-7. **Ambigüedad.** Una misma señal de primer orden admite más de una lectura, cada lectura pide
+7. **Ambigüedad.** Un mismo dato crudo admite más de una lectura, cada lectura pide
    otra acción, y sólo el contexto permite elegir.
    *Ejemplo: la precisión cae. Si coincide con calor, es deriva y sirve refrescar. Si coincide con
    un cambio en la entrada, refrescar no sirve.*
@@ -43,13 +48,13 @@ Con una prueba de información, sin LLM:
 
 1. Simular jornadas con una política al azar.
 2. En cada momento de decisión, predecir si la acción va a servir y si la variable va a empeorar,
-   de tres maneras: (a) con las señales de primer orden de ese instante; (b) sumando su contexto
+   de tres maneras: (a) con los datos crudos de ese instante; (b) sumando su contexto
    (conjunción, frecuencia, duración, tendencia); (c) sumando el estado real del entorno, el que
    ningún sensor ve.
 3. Comparar, en semillas que no se usaron para ajustar.
 
 Si (b) predice mejor que (a), el entorno cumple las condiciones 6 y 7. Si ni (c) predice mejor
-que (a), no las cumple: toda la información que existe ya está en la señal de primer orden.
+que (a), no las cumple: toda la información que existe ya está en el dato crudo.
 
 ## Caso: el reservorio de rc-gamma (17/11/2026)
 
