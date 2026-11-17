@@ -1,90 +1,116 @@
-# Cuándo un problema pide regulación de segundo orden
+# ¿Este problema necesita regulación de segundo orden?
 
-Sirve para diseñar experimentos: antes de comparar un agente regulado por sus necesidades contra
-el mismo agente regulado por sus sensores, hay que saber si el problema tiene algo que el segundo
-orden pueda leer. Si no lo tiene, el empate es el resultado esperado y no dice nada de la EPA.
+## Para qué sirve este documento
 
-## Vocabulario
+Para decidir, **antes de diseñar un experimento**, si tiene sentido comparar un agente regulado
+por sus necesidades (segundo orden) contra el mismo agente regulado por sus sensores (primer
+orden).
 
-- **Primer orden.** Un sensor lee una variable observada del mundo y emite un evento cuando cruza
-  una zona del contrato, en nivel o en ritmo. Es una foto: valor, zona y pendiente de ahora.
-- **Segundo orden.** Una necesidad escucha a varios sensores de primer orden, agrega sus eventos
-  en el tiempo y les da significado respecto de la viabilidad del agente.
+La razón: si el problema no tiene nada que el segundo orden pueda aprovechar, los dos agentes
+empatan. Ese empate no dice nada sobre la EPA; dice que se eligió mal el problema. Este
+documento evita gastar en ese experimento.
 
-## Paso 1: que sea un problema de regulación
+## Las dos cosas que se comparan
 
-Las cuatro condiciones de un problema de autorregulación (paper Blue Sky, AAMAS 2027):
+| | Qué es | Qué sabe |
+|---|---|---|
+| **Primer orden** | Un sensor mira una variable del mundo y avisa cuando cruza una zona | Lo de este instante: valor, zona y pendiente de **una** variable |
+| **Segundo orden** | Una necesidad escucha a **varios** sensores y junta lo que avisan a lo largo del tiempo | Lo que ningún sensor dice solo: qué pasó junto, cuántas veces, hace cuánto, y qué significa para seguir vivo |
 
-1. Hay variables que mantener en un rango viable por tiempo indefinido, y mantenerlas es el
-   objetivo, no un paso hacia una recompensa final.
-2. Hay tensiones que no se resuelven de una vez: lo que empuja a trabajar y lo que tira a
-   preservarse gastan los mismos recursos finitos. Por eso hace falta al menos una necesidad de
-   empuje y una de arrastre.
-3. La información para actuar es más barata y más rápida adentro del agente, local y privada, que
-   afuera.
-4. Las variables responden a la acción y a la negligencia de forma no lineal y con incertidumbre.
+## La regla
 
-Si no se cumplen, no hace falta regular: alcanza con optimizar.
+Un problema necesita regulación de segundo orden si cumple **las dos partes**:
 
-## Paso 2: que la regulación tenga que ser de segundo orden
+- **Parte A:** es un problema de regulación (las cuatro condiciones).
+- **Parte B:** juntar señales aporta algo que una señal sola no aporta (al menos una de las seis
+  preguntas se responde que sí).
 
-Además de las cuatro, tiene que cumplirse al menos una de estas. Si no se cumple ninguna, una
-regulación de primer orden alcanza.
+Si cumple A y no cumple B, alcanza con primer orden.
 
-| | Condición | Qué quiere decir | Ejemplo |
-|---|---|---|---|
-| S1 | **Agregación N:1** | Lo que hay que mantener viable no lo mide un solo sensor: varias variables observadas hablan de la misma necesidad | El costo de operar se reparte en dólares de API, tokens, memoria y tiempo; ninguno solo dice si el agente puede seguir |
-| S2 | **Variable inobservable** | La condición que importa no la lee ningún sensor y hay que inferirla de varios | «La casa está ocupada» no la mide nadie: se infiere de movimiento, agua y puertas |
-| S3 | **Ambigüedad de causa** | La misma lectura de primer orden tiene más de una causa posible, y cada causa pide otra respuesta | La precisión cae por deriva (sirve refrescar) o por un cambio en la entrada (refrescar no sirve) |
-| S4 | **La historia informa** | Duración, conteo, secuencia o frecuencia de los eventos predicen algo que la lectura de ahora no predice | Tres caídas en una hora con intervalos que se acortan anuncian otra cosa que una caída aislada |
-| S5 | **Ruido** | Las detecciones de primer orden dan falsos positivos, y combinarlas da una señal más estable que cualquiera sola | Un sensor que vibra en un borde de zona |
-| S6 | **Efecto de las propias acciones** | Saber si la última acción sirvió cambia cuál conviene ahora | Tres refrescos seguidos sin efecto medido |
+## Parte A: ¿es un problema de regulación?
 
-Lo que agrega el segundo orden, cuando alguna se cumple, es contexto que no está en ningún sensor
-por separado: **estado** (una conjunción de detecciones), **conteo** y **duración** (las tres
-clases de Laput, Zhang y Harrison, CHI 2017), **tendencia**, y **significado**: qué quiere decir
-esa combinación para la viabilidad del agente. En química analítica el mismo salto tiene nombre,
-la «ventaja de segundo orden»: con una matriz de datos por muestra se puede cuantificar aunque
-haya un interferente que no estaba en la calibración; con un vector se lo detecta, pero no se
-puede analizar (Booksh y Kowalski, 1994).
+Tienen que cumplirse las cuatro (paper Blue Sky, AAMAS 2027). Si no, alcanza con optimizar.
 
-Tiene costo: los errores de conteo se acumulan, una señal derivada amplifica el ruido de las que
-combina, y más variables por necesidad son más contrato que calibrar.
+1. **Sin meta final.** Hay variables que mantener en un rango viable por tiempo indefinido, y
+   mantenerlas es el objetivo.
+2. **Tensiones que no se resuelven.** Lo que empuja a trabajar y lo que tira a preservarse gastan
+   los mismos recursos.
+3. **Información local y privada.** Lo que hace falta saber para actuar se consigue más barato y
+   más rápido adentro del agente que afuera.
+4. **Respuesta no lineal e incierta.** Las variables no responden de forma proporcional ni segura
+   a la acción ni a la negligencia.
 
-## Paso 3: comprobarlo antes de gastar en un experimento
+## Parte B: ¿juntar señales aporta algo?
 
-Las condiciones S2, S3, S4 y S6 se pueden medir sin LLM, con una **prueba de información**:
+Seis preguntas. Cada una dice por qué, si la respuesta es sí, un sensor solo no alcanza.
+
+**B1. ¿Lo que hay que cuidar lo miden varios sensores a la vez?**
+Si sí, ningún sensor solo dice cómo está: hay que agregarlos (N sensores, una necesidad).
+*Ejemplo:* el costo de operar se reparte en dólares de API, tokens, memoria y tiempo.
+
+**B2. ¿Lo que importa no lo mide ningún sensor?**
+Si sí, hay que inferirlo combinando los que hay.
+*Ejemplo:* ningún sensor mide «la casa está ocupada»; se deduce de movimiento, agua y puertas.
+
+**B3. ¿La misma lectura puede tener causas distintas que piden respuestas distintas?**
+Si sí, un sensor solo no permite elegir la respuesta: hay que mirar qué más pasó.
+*Ejemplo:* la precisión cae por deriva (sirve refrescar) o por un cambio en la entrada (no sirve).
+
+**B4. ¿Lo que pasó antes predice algo que la lectura de ahora no predice?**
+Si sí, hace falta memoria de los eventos: cuántos, cada cuánto, hace cuánto.
+*Ejemplo:* tres caídas en una hora, cada vez más seguidas, anuncian otra cosa que una caída sola.
+
+**B5. ¿Los sensores dan falsas alarmas?**
+Si sí, combinar varios da una señal más confiable que cualquiera sola.
+*Ejemplo:* un sensor que vibra en el borde de una zona.
+
+**B6. ¿Saber si la última acción sirvió cambia cuál conviene ahora?**
+Si sí, hay que llevar la cuenta del efecto de las propias acciones.
+*Ejemplo:* tres refrescos seguidos sin efecto medido piden probar otra cosa.
+
+## Cómo comprobar la Parte B sin gastar en un LLM
+
+B2, B3, B4 y B6 se pueden medir con una **prueba de información**:
 
 1. Simular jornadas con una política al azar.
-2. En cada momento de decisión, predecir lo que importa (¿esta acción va a servir?, ¿la variable
-   va a empeorar pronto?) con tres juegos de lecturas: las de primer orden de ese instante; esas
-   más las de segundo orden; y esas más el estado oculto real del entorno, que ningún sensor ve.
-3. Validar en semillas que el predictor no vio.
+2. En cada momento de decisión, intentar predecir lo que importa (¿esta acción va a servir?, ¿la
+   variable va a empeorar pronto?) de tres maneras:
+   - (a) sólo con las lecturas de primer orden de ese instante;
+   - (b) agregando lecturas de segundo orden (conteos, duraciones, conjunciones);
+   - (c) agregando el estado real del entorno, el que ningún sensor ve.
+3. Comparar qué tan bien predice cada una, en semillas que no se usaron para ajustar.
 
-Lectura del resultado:
+| Resultado | Qué significa | Qué hacer |
+|---|---|---|
+| (c) no predice mejor que (a) | No hay nada escondido que saber. La Parte B no se cumple | No correr el experimento: va a dar empate |
+| (c) predice mejor, y (b) también | Hay información y el segundo orden la captura | Correr el experimento con LLM |
+| (c) predice mejor, y (b) no | Hay información, pero las lecturas de segundo orden elegidas no la capturan | Rediseñar esas lecturas |
 
-- **El estado oculto no predice más que el primer orden.** No hay nada escondido que saber. El
-  problema no cumple S2, S3, S4 ni S6, y ningún sensado, de ningún orden, puede agregar
-  información. Un empate entre primer y segundo orden es lo esperable.
-- **El estado oculto predice más, y el segundo orden recupera parte.** Hay con qué: vale el
-  experimento con LLM.
-- **El estado oculto predice más y el segundo orden no.** Hay información, pero las lecturas de
-  segundo orden elegidas no la capturan: falta diseñarlas.
+Límite: la prueba mide si hay información, no si a un LLM le sirve recibirla ya procesada. Eso se
+mide aparte, con pocas semillas.
 
-La prueba mide información, no si a un LLM le sirve recibirla ya integrada. Eso se mide aparte.
+## Caso resuelto: el reservorio de rc-gamma (17/11/2026)
 
-## Caso: el reservorio de rc-gamma (17/11/2026)
+**Parte A: sí.** Cumple las cuatro.
 
-Cumple las cuatro condiciones de regulación. No cumple las de segundo orden: una sola causa de
-caída (la deriva de los memristores), una sola acción que sirve (refrescar) y un estado que se
-resume en la precisión de ahora.
+**Parte B: no.** Hay una sola causa de caída (la deriva de los memristores), una sola acción que
+sirve (refrescar), y todo el estado se resume en la precisión de ahora.
 
-| Qué se predice | Primer orden | Más segundo orden | Más estado oculto |
+| Qué se predice | (a) Primer orden | (b) Más segundo orden | (c) Más estado oculto |
 |---|---|---|---|
 | Cuánto sube la precisión con este refresco (R²) | 0,427 | 0,405 | 0,429 |
 | Si la precisión cae a una zona peor en 30 min (AUC) | 0,852 | 0,846 | 0,851 |
 
-80 jornadas, 1.598 refrescos, 3.600 instantes (`informacion.py` en rc-gamma). Con DeepSeek, darle
-al agente la lectura de segundo orden ya integrada tampoco cambió la aptitud (8 semillas: +1,3 ±
-2,4 a carga nominal y −3,0 ± 1,9 con calor). En ese entorno la EPA v2 queda primera en aptitud
-sin diferencia significativa contra el primer orden, y es lo que estas condiciones anticipan.
+(c) no predice mejor que (a): primera fila de la tabla de resultados. Con DeepSeek se confirmó:
+darle al agente la lectura de segundo orden no cambió su aptitud (+1,3 ± 2,4 a carga nominal y
+−3,0 ± 1,9 con calor, 8 semillas).
+
+Por eso en ese entorno la EPA v2 y el primer orden empatan, y es lo que esta regla anticipa.
+Datos: 80 jornadas, 1.598 refrescos, 3.600 instantes (`informacion.py` en rc-gamma).
+
+## Fuentes
+
+- Las tres clases de lectura de segundo orden (estado, conteo, duración): Laput, Zhang y
+  Harrison, *Synthetic Sensors*, CHI 2017.
+- Que más dimensiones por muestra permiten separar causas no calibradas (la «ventaja de segundo
+  orden»): Booksh y Kowalski, *Theory of Analytical Chemistry*, 1994.
