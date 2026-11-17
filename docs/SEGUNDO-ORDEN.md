@@ -90,11 +90,9 @@ deriva de los memristores) y una sola acción que la corrige (refrescar).
 sólo eso: si el contexto predice el efecto del próximo refresco bajo una política al azar. No mide
 lo que vale conocer los intentos fallidos y exitosos previos.
 
-Con el ritmo tratado como primer orden, el agente regulado por la EPA v2 y el regulado por sus
-sensores rinden igual (aptitud 86,1 y 84,9 a carga nominal, 82,4 y 81,3 con calor, 60 semillas).
-Con el ritmo en el segundo orden y el primer orden limitado al dato crudo y su zona, 87,0 contra
-84,3 y 84,1 contra 80,5 (30 semillas; +2,7 y +3,6, intervalos del 95 % que excluyen el cero,
-p = 0,099 con Holm).
+Con el primer orden limitado al dato crudo y su zona, el agente regulado por la EPA v2 tiene
+aptitud 87,0 a carga nominal y 84,1 con calor, y el regulado por sus sensores 84,3 y 80,5 (30
+semillas; +2,7 y +3,6, intervalos del 95 % que excluyen el cero, p = 0,099 con Holm).
 
 ## Fuentes
 
