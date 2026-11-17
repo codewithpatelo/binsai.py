@@ -42,6 +42,26 @@ Y tres más, que lo hacen de segundo orden:
 Con las cuatro primeras alcanza una regulación de primer orden. Con las siete hace falta una de
 segundo orden: una necesidad que agrupa las señales, les da contexto y resuelve la ambigüedad.
 
+## Tres niveles de regulación
+
+| Nivel | Qué mira | Forma de la decisión |
+|---|---|---|
+| Operativo | Un evento en un dato crudo | Pasa tal evento, hago esto |
+| Táctico | Una situación: lo que pasó y está pasando alrededor de una perturbación, hacia atrás y hacia adelante | Pasa tal situación, hago tal otra cosa |
+| Estratégico | Tendencias de situaciones, y el propósito del agente | Viene pasando esto y mi propósito es este: me conviene tal cosa |
+
+El nivel operativo es el primer orden. El segundo orden ve situaciones: ritmo, frecuencia,
+conjunción (patrones, tendencias), historia (antecedentes, intentos fallidos e intentos exitosos
+previos) y desambiguación (qué significa esto).
+
+La unidad de una situación es la envolvente de una perturbación. Alrededor de cada una se abre una
+ventana hacia atrás y hacia adelante, y ahí se lee qué venía pasando, qué pasó a la vez y qué pasó
+después. Los patrones salen de comparar esos episodios entre sí. El modelo recibe esos episodios;
+la historia entera queda consultable, por el período que quiera, como una herramienta del arnés.
+
+Un modelo podría categorizar sus propias situaciones. El nivel estratégico pide un horizonte
+temporal más amplio que el táctico.
+
 ## Cómo se verifica en un entorno concreto
 
 Con una prueba de información, sin LLM:
@@ -66,9 +86,15 @@ deriva de los memristores) y una sola acción que la corrige (refrescar).
 | Cuánto sube la precisión con este refresco (R²) | 0,427 | 0,405 | 0,429 |
 | Si la precisión cae a una zona peor en 30 min (AUC) | 0,852 | 0,846 | 0,851 |
 
-80 jornadas, 1.598 refrescos, 3.600 instantes (`informacion.py` en rc-gamma). En ese entorno el
-agente regulado por la EPA v2 y el regulado por sus sensores rinden igual (aptitud 86,0 y 85,0 a
-carga nominal, 83,5 y 81,8 con calor, 30 semillas, sin diferencia significativa).
+80 jornadas, 1.598 refrescos, 3.600 instantes (`informacion.py` en rc-gamma). La prueba mide
+sólo eso: si el contexto predice el efecto del próximo refresco bajo una política al azar. No mide
+lo que vale conocer los intentos fallidos y exitosos previos.
+
+Con el ritmo tratado como primer orden, el agente regulado por la EPA v2 y el regulado por sus
+sensores rinden igual (aptitud 86,1 y 84,9 a carga nominal, 82,4 y 81,3 con calor, 60 semillas).
+Con el ritmo en el segundo orden y el primer orden limitado al dato crudo y su zona, 87,0 contra
+84,3 y 84,1 contra 80,5 (30 semillas; +2,7 y +3,6, intervalos del 95 % que excluyen el cero,
+p = 0,099 con Holm).
 
 ## Fuentes
 
