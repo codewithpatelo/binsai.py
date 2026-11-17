@@ -52,6 +52,19 @@ es lo que en la EPA especifican la dinámica basal, la envolvente de la perturba
 corrección. La regulación entra como un costo restado a la recompensa y como temperatura
 de la política, no como una tasa de activación.
 
+## Synthetic Sensors: Towards General-Purpose Sensing
+
+Laput, Zhang y Harrison. CHI 2017.
+
+**Qué hace.** Sensores sintéticos de primer orden, binarios («¿corre la canilla?»), y de segundo
+orden, que usan las salidas de los primeros como entradas: estado (una máquina de estados sobre
+varias detecciones), conteo y duración. Propone órdenes superiores (cocina, casa) sin construirlos.
+
+**En qué se parece.** Es la misma jerarquía que variable observada y necesidad, y de ahí salen las
+clases de lectura de segundo orden de `SEGUNDO-ORDEN.md`.
+
+**En qué difiere.** Es sensado, no regulación: no hay viabilidad, dinámica propia ni acción.
+
 ## Antecedentes ya citados en otros documentos
 
 | Antecedente | Para qué se cita | Dónde |
