@@ -326,6 +326,17 @@ def _render_strip(
             f'<polyline points="{" ".join(pts)}" fill="none" stroke="{th["pen"]}" '
             f'stroke-width="2" stroke-linejoin="round"/>'
         )
+        # una marca vertical corta sobre la trayectoria en cada perturbación (y en cada
+        # corrección), para ver cuándo llegó sin buscar el triángulo en el borde
+        valor_en = dict(hist)
+        for p in getattr(drive, "perturbation_history", []):
+            if p.born_at not in valor_en or (death is not None and p.born_at >= death):
+                continue
+            mx = x0 + (p.born_at / tmax) * pw if tmax else x0
+            my = y0 + (1.0 - valor_en[p.born_at]) * ph
+            col = th["ok"] if getattr(p, "es_correccion", False) else th["ink"]
+            g.append(f'<line x1="{mx:.1f}" x2="{mx:.1f}" y1="{my - 7:.1f}" y2="{my + 7:.1f}" '
+                     f'stroke="{col}" stroke-width="1.6" stroke-linecap="round"/>')
         last_tick, last_val = hist[-1]
         tx = x0 + (last_tick / tmax) * pw if tmax else x0
         ty = y0 + (1.0 - last_val) * ph
