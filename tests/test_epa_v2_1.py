@@ -103,7 +103,7 @@ class TestPerturbationIsAnImpulse:
         Un cruce hacia la zona estable no abre un evento espejado ni apaga el
         que está abierto. Si lo apagara, el agente se llevaría crédito por la
         suerte del mundo y el axioma 3 no existiría. El evento sigue abierto,
-        así que si la variable vuelve a salir es la misma perturbación (A2.2):
+        así que si la variable vuelve a salir es la misma perturbación (la nota de histéresis):
         no abre otra. Una nueva abre recién cuando una acción cerró la anterior.
         """
         var = ObservedVariable(
@@ -582,7 +582,7 @@ class TestCrucesHaciaElEquilibrio:
 
     def test_cada_banda_se_devuelve_una_vez_por_golpe(self):
         """Un sensor que vibra en el borde amarillo/verde no acredita una corrección por
-        cada regreso: por A2.2 volver a salir no golpea de nuevo, así que tampoco cura de nuevo."""
+        cada regreso: por la nota de histéresis volver a salir no golpea de nuevo, así que tampoco cura de nuevo."""
         d = make_drive(name="eficacia", value=0.5)
         self._golpe(d, 0.0, 1)
         self._cruce(d, 1.0, 1, "deficit_amarillo", "verde")

@@ -1081,7 +1081,7 @@ class Drive(EventEmitter):
         #   vuelve a verde        -> nada en la necesidad (A3: el mundo no
         #                            libera). El evento sigue abierto, así que
         #                            si la variable vuelve a salir es la misma
-        #                            perturbación (A2.2): escala si es peor y
+        #                            perturbación (la nota de histéresis): escala si es peor y
         #                            no abre otra. Una nueva abre recién cuando
         #                            una acción cerró la anterior.
         previa = self._zona_fuente.get(fuente, 0)
@@ -1106,7 +1106,7 @@ class Drive(EventEmitter):
             orden = ("verde", "amarillo", "ambar", "rojo")
             hasta = next((k for k, n in enumerate(orden) if n in destino), 0)
             #
-            # Y cada banda se devuelve UNA vez por golpe. Por A2.2 una variable que
+            # Y cada banda se devuelve UNA vez por golpe. Por la nota de histéresis una variable que
             # vuelve a salir de verde con su evento abierto no golpea de nuevo; si
             # cada regreso contara como corrección, un sensor que vibra en un borde
             # acreditaría más de lo que el golpe quitó y empujaría la necesidad
@@ -1533,7 +1533,7 @@ class Drives:
 
     @property
     def dead(self) -> Optional[str]:
-        """A4.1 — viabilidad conjuntiva: la primera necesidad que cruza mata.
+        """la nota de viabilidad conjuntiva — viabilidad conjuntiva: la primera necesidad que cruza mata.
 
         Devuelve el nombre de la que cruzó, o None. No hay una necesidad que
         siga viva después de que otra cruzó su límite: el conjunto viable es la

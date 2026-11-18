@@ -4,7 +4,7 @@
 
 ### Delta sobre v2 — spec completa en `docs/paov2.1.md`
 
-- **A2.2 — un evento por cruce.** Mientras una fuente tenga un evento abierto,
+- **la nota de histéresis — un evento por cruce.** Mientras una fuente tenga un evento abierto,
   volver a salir de verde no abre otro: es la misma perturbación y escala si la
   banda es peor. Antes cada salida abría uno nuevo y una variable que volvía
   sola a verde y salía otra vez apilaba eventos sobre la necesidad
@@ -17,7 +17,7 @@
   Ahora se guardan todos, de a una banda. `Drive.cobrar_correccion` devuelve la
   lista de correcciones (antes una o `None`) y `Drive.tomar_cruces` entrega los
   cruces pendientes a quien calcula su propia magnitud.
-  Cada banda se devuelve una vez por golpe: por A2.2 una variable que vuelve a
+  Cada banda se devuelve una vez por golpe: por la nota de histéresis una variable que vuelve a
   salir de verde con su evento abierto no golpea de nuevo, así que su regreso
   tampoco cura de nuevo (`Drive._bandas_pendientes`).
   La banda se da por devuelta cuando una acción la cobra; un regreso que hizo el

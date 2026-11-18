@@ -158,7 +158,7 @@ class ObservedVariable(EventEmitter):
         source:           str             = "",
         zone_thresholds:  tuple[float, float, float] = (0.15, 0.40, 0.70),
         levels:           Optional[dict]  = None,   # contrato: umbrales EN UNIDADES
-        hysteresis:       float           = 0.15,  # A2.2 — deadband, fracción de la banda
+        hysteresis:       float           = 0.15,  # la nota de histéresis — deadband, fracción de la banda
         hemisphere:       str             = "deficit",  # qué hemisferio viola esta variable
         impulse_iota:     tuple[float, float, float] = (0.02, 0.06, 0.18),  # ι₁ ι₂ ι₃
         impulse_zeta:     float           = 0.6,   # ζ — improving satiates less
@@ -601,7 +601,7 @@ class ObservedVariable(EventEmitter):
         return "verde"
 
     def _settled_zone(self, p: float, last: Optional[str]) -> str:
-        """A2.2 — la banda, con deadband a la salida.
+        """la nota de histéresis — la banda, con deadband a la salida.
 
         Entrar a una banda peor es inmediato: el dolor no se demora. Salir exige
         que la presión caiga una fracción `hysteresis` de la banda por debajo de

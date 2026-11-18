@@ -332,7 +332,7 @@ def test_a2_in_the_agent_gate():
 
 
 def test_a2_1_aggregation_is_max_not_mean():
-    """A2.1: una necesidad muerta y otra en equilibrio no promedian a media presión."""
+    """la nota de agregación: una necesidad muerta y otra en equilibrio no promedian a media presión."""
     from binsai.fuzzy import homeostatic_error
     viva, muerta = make(+1.0, name="viva"), make(-1.0, name="muerta")
     muerta.value = muerta.viability[0]                 # cruzó su límite
@@ -356,7 +356,7 @@ def test_a2_the_impulse_is_symmetric_in_the_hemispheres():
 
 
 def test_a4_1_the_first_crossing_kills_the_agent():
-    """A4.1 — viabilidad conjuntiva."""
+    """la nota de viabilidad conjuntiva — viabilidad conjuntiva."""
     viva, cruza = make(+1.0, name="viva"), make(-1.0, name="cruza")
     drives = Drives([viva, cruza])
     assert drives.dead is None

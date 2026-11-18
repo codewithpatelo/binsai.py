@@ -351,7 +351,7 @@ class Ventana:
                 if res.muerte is None and not (lo < d.value < hi):
                     res.muerte, res.quien = t, d.name
             if res.muerte is not None:
-                break                        # A4.1 — viabilidad conjuntiva
+                break                        # la nota de viabilidad conjuntiva — viabilidad conjuntiva
 
         if ciclo is not None:
             ciclo.cierra, ciclo.desenlace = self.pulsos, "abierto"

@@ -37,42 +37,6 @@ tasa de activación en su máximo mientras la necesidad está en su punto de
 equilibrio. El mundo entra a la necesidad por sus eventos de perturbación;
 nunca por la tasa.
 
-### A2.1 — Agregación por acoplamiento
-
-Sin acoplamiento, cada necesidad puede activar al agente por su cuenta: la
-señal del sistema es el máximo de los desvíos, y una necesidad no se diluye
-porque las demás estén tranquilas.
-
-Con acoplamiento, la agregación es ponderada por la matriz `W`: el desvío de
-una necesidad acoplada entra al impulso de la otra con el peso que `W` declara,
-y con el retardo que declare.
-
-**Prohíbe.** Promediar las necesidades. Un promedio con una necesidad muerta y
-otra en equilibrio da media presión y el agente descansa junto al cadáver. Si
-una fuente no está calibrada se excluye de la agregación y se reporta; no entra
-como cero.
-
-### A2.2 — Histéresis
-
-Un cruce de banda tiene umbrales distintos de entrada y de salida (`α_in`,
-`α_out`). Entrar a una banda peor es inmediato —el dolor no se demora—; salir
-exige que la pertenencia caiga por debajo del umbral de salida.
-
-La histéresis es sobre la **banda**, no sobre el tiempo: no es un temporizador,
-es un deadband. Su ancho es una fracción de la banda, así que no tiene unidades
-propias y la misma calibración sirve a cualquier escala.
-
-**Prohíbe.** Que una necesidad o una variable que oscila alrededor de un corte
-emita un evento por muestra. Un sensor que vibra en un borde no está
-perturbando al agente: está haciendo ruido, y un agente que tiene que cerrar
-cada vibración no tiene presupuesto para regular.
-
-**Un evento por cruce.** Mientras una fuente tenga un evento abierto, que ninguna
-acción cerró, volver a salir de verde no abre otro: es la misma perturbación,
-que escala si la banda es peor. El deadband solo no alcanza cuando la variable
-vuelve a verde por su cuenta y sale de nuevo: por A3 ese regreso no libera el
-evento, y cada salida apilaba uno más sobre la necesidad.
-
 ---
 
 ## A3 — Corrección
@@ -104,11 +68,6 @@ límite de viabilidad. Calibrar es elegir la fecha de esa muerte.
 cuya negligencia basal no mata no genera presión y vuelve decorativa toda la
 ecuación. Prohíbe también que cruzar un límite de viabilidad sea un tope: se
 cruza, y ahí se muere.
-
-### A4.1 — Viabilidad conjuntiva
-
-La primera necesidad que cruza su límite mata al agente. No hay una necesidad
-que siga viva después de que otra cruzó.
 
 ---
 
@@ -325,3 +284,51 @@ TTD que infle la tasa en todos lados: medida sobre una ventana real domina el
 100 % de los pulsos, el agente quiere despertar siempre, y lo que termina
 espaciando las activaciones es el refractario. La figura se ve bien por el
 motivo equivocado.
+
+---
+
+## Notas (no son axiomas)
+
+Lo que sigue no es canon. Son notas de implementación escritas durante el desarrollo de binsai.
+Ningún axioma tiene subítems, y nada de esta sección se chequea como conformidad con los axiomas.
+
+### Nota: agregación por acoplamiento
+
+Sin acoplamiento, cada necesidad puede activar al agente por su cuenta: la
+señal del sistema es el máximo de los desvíos, y una necesidad no se diluye
+porque las demás estén tranquilas.
+
+Con acoplamiento, la agregación es ponderada por la matriz `W`: el desvío de
+una necesidad acoplada entra al impulso de la otra con el peso que `W` declara,
+y con el retardo que declare.
+
+**Prohíbe.** Promediar las necesidades. Un promedio con una necesidad muerta y
+otra en equilibrio da media presión y el agente descansa junto al cadáver. Si
+una fuente no está calibrada se excluye de la agregación y se reporta; no entra
+como cero.
+
+### Nota: histéresis
+
+Un cruce de banda tiene umbrales distintos de entrada y de salida (`α_in`,
+`α_out`). Entrar a una banda peor es inmediato —el dolor no se demora—; salir
+exige que la pertenencia caiga por debajo del umbral de salida.
+
+La histéresis es sobre la **banda**, no sobre el tiempo: no es un temporizador,
+es un deadband. Su ancho es una fracción de la banda, así que no tiene unidades
+propias y la misma calibración sirve a cualquier escala.
+
+**Prohíbe.** Que una necesidad o una variable que oscila alrededor de un corte
+emita un evento por muestra. Un sensor que vibra en un borde no está
+perturbando al agente: está haciendo ruido, y un agente que tiene que cerrar
+cada vibración no tiene presupuesto para regular.
+
+**Un evento por cruce.** Mientras una fuente tenga un evento abierto, que ninguna
+acción cerró, volver a salir de verde no abre otro: es la misma perturbación,
+que escala si la banda es peor. El deadband solo no alcanza cuando la variable
+vuelve a verde por su cuenta y sale de nuevo: por A3 ese regreso no libera el
+evento, y cada salida apilaba uno más sobre la necesidad.
+
+### Nota: viabilidad conjuntiva
+
+La primera necesidad que cruza su límite mata al agente. No hay una necesidad
+que siga viva después de que otra cruzó.

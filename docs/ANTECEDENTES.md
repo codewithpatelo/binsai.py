@@ -20,8 +20,8 @@ supervivencia en la fase de aprendizaje frente a repartirla parejo (0,414 contra
 escenarios). Apuntarla a la necesidad menos comprometida da peor que el reparto parejo.
 
 **En qué se parece.** Necesidades con decaimiento propio bajo inacción y muerte al cruzar
-el límite (A4, A4.1). La conducta depende del estado interno (A1). Lo que prioriza es la
-necesidad más comprometida, no un promedio (A2.1).
+el límite (A4, la nota de viabilidad conjuntiva). La conducta depende del estado interno (A1). Lo que prioriza es la
+necesidad más comprometida, no un promedio (la nota de agregación).
 
 **En qué difiere.** El decaimiento es lineal y sin resorte ni fatiga. No hay bandas
 algedónicas ni eventos: la necesidad es un nivel que el agente lee con ruido. No hay
